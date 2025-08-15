@@ -64,24 +64,9 @@ controller_interface::return_type JointPositionAdaptableController::update(const
     
     for (int i = 0; i < num_joints; ++i) 
     {
-      initial_q_.at(i) = state_interfaces_[i].get_value();
+      initial_q_[i] = state_interfaces_[i].get_value();
+      motion_goal_position_[i] = initial_q_[i];
     }
-
-    if(is_target_relative_)
-    {
-      for (int i = 0; i < num_joints; ++i) 
-      { 
-        current_target_q_.at(i) = 0;
-      }
-    }
-    else
-    {
-      for (int i = 0; i < num_joints; ++i) 
-      { 
-        current_target_q_.at(i) = state_interfaces_[i].get_value();
-      }
-    }
-
 
     if (!is_gazebo_) 
     {
@@ -101,26 +86,59 @@ controller_interface::return_type JointPositionAdaptableController::update(const
     }
   }
 
-  if(is_target_relative_)
+  if(use_target_directly_)
   {
     for (int i = 0; i < num_joints; ++i) 
-    {
-      command_interfaces_[i].set_value(initial_q_.at(i) + current_target_q_.at(i));    
+    {    
+      command_interfaces_[i].set_value(motion_goal_position_[i]);    
     }
   }
   else
   {
-    for (int i = 0; i < num_joints; ++i) 
+    if(elapsed_time_ > motion_start_time_ + motion_duration_ || motion_duration_ == 0)
     {
-      command_interfaces_[i].set_value(current_target_q_.at(i));    
+      is_in_motion_ = false;
+    }
+
+    if(!is_in_motion_)
+    {
+      for (int i = 0; i < num_joints; ++i) 
+      {    
+        command_interfaces_[i].set_value(motion_goal_position_[i]);    
+      }
+    }
+    else 
+    {
+      for (int i = 0; i < num_joints; ++i) 
+      {    
+        double tau = (elapsed_time_ - motion_start_time_) / motion_duration_;
+        double h_tau = 10*std::pow(tau,3)-15*std::pow(tau,4)+6*std::pow(tau,5);
+        double current_q = motion_start_position_[i] + (motion_goal_position_[i] - motion_start_position_[i]) * h_tau;
+        command_interfaces_[i].set_value(current_q);    
+      }
     }
   }
 
   return controller_interface::return_type::OK;
 }
 
+double JointPositionAdaptableController::calculateT(double delta_q, double max_joint_velocity, double max_joint_acceleration)
+{
+  double Tv = (15.0/8.0) * (std::abs(delta_q) / max_joint_velocity);
+  double Ta = std::sqrt((10.0 * std::sqrt(3.0) / 3.0) * (abs(delta_q) / max_joint_acceleration));
+  double T = std::max(Tv, Ta) * motion_duration_safety_factor_;
+  return T;
+}
+
 void JointPositionAdaptableController::targetCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) 
 {
+
+  if(!use_target_directly_ && is_in_motion_) 
+  {
+    RCLCPP_WARN(get_node()->get_logger(), "Received new target while in motion. Ignoring");
+    return;
+  }
+
   if (int(msg->data.size()) != num_joints) 
   {
     RCLCPP_WARN(get_node()->get_logger(), "Received target_q with %zu elements, expected %d. Ignoring.", msg->data.size(), num_joints);
@@ -129,10 +147,32 @@ void JointPositionAdaptableController::targetCallback(const std_msgs::msg::Float
 
   for (int i = 0; i < num_joints; ++i) 
   {
-    current_target_q_[i] = msg->data[i];
+    motion_start_position_[i] = state_interfaces_[i].get_value();
+    if(is_target_relative_)
+    {
+      motion_goal_position_[i] = initial_q_[i] + msg->data[i];
+    }
+    else
+    {
+      motion_goal_position_[i] = msg->data[i];
+    }
   }
 
-  RCLCPP_DEBUG(get_node()->get_logger(), "Updated target_q from topic.");
+  if(!use_target_directly_)
+  {
+    is_in_motion_ = true;
+    motion_start_time_ = elapsed_time_;
+    
+    // compute motion duration that respects joint limits
+    motion_duration_ = 0;
+    for (int i = 0; i < num_joints; ++i) 
+    {
+      double delta_q = motion_goal_position_[i] - motion_start_position_[i];
+      motion_duration_ = std::max(motion_duration_, calculateT(delta_q, joint_velocity_limit_[i], joint_acceleration_limit_[i]));
+    }
+  }
+
+  RCLCPP_DEBUG(get_node()->get_logger(), "Updated target_q from topic, start new motion with duration %f", motion_duration_);
 }
 
 CallbackReturn JointPositionAdaptableController::on_init() 
@@ -140,6 +180,8 @@ CallbackReturn JointPositionAdaptableController::on_init()
   try 
   {
     auto_declare<bool>("gazebo", false);
+    auto_declare<bool>("is_target_relative", true);
+    auto_declare<bool>("use_target_directly", false);
     auto_declare<std::string>("robot_description", "");
   } 
   catch (const std::exception& e) 
@@ -153,7 +195,8 @@ CallbackReturn JointPositionAdaptableController::on_init()
 CallbackReturn JointPositionAdaptableController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) 
 {
   is_gazebo_ = get_node()->get_parameter("gazebo").as_bool();
-  is_target_relative_ = get_node()->get_parameter("target_relative").as_bool();
+  is_target_relative_ = get_node()->get_parameter("is_target_relative").as_bool();
+  use_target_directly_ = get_node()->get_parameter("use_target_directly").as_bool();
 
   auto parameters_client = std::make_shared<rclcpp::AsyncParametersClient>(get_node(), "robot_state_publisher");
   parameters_client->wait_for_service();
@@ -163,6 +206,7 @@ CallbackReturn JointPositionAdaptableController::on_configure(const rclcpp_lifec
   if (!result.empty()) 
   {
     robot_description_ = result[0].value_to_string();
+    RCLCPP_INFO(get_node()->get_logger(), "Robot desription %s", robot_description_.c_str());
   } 
   else 
   {
@@ -170,6 +214,11 @@ CallbackReturn JointPositionAdaptableController::on_configure(const rclcpp_lifec
   }
 
   arm_id_ = robot_utils::getRobotNameFromDescription(robot_description_, get_node()->get_logger());
+  bool succ = robot_utils::getJointVelocityLimitsFromDescription(robot_description_, get_node()->get_logger(), joint_velocity_limit_);
+  if(!succ)
+  {
+    RCLCPP_ERROR(get_node()->get_logger(), "Failed to get robot_description parameter.");
+  }
 
   target_subscriber_ = get_node()->create_subscription<std_msgs::msg::Float64MultiArray>("~/target_joint_position", 1,
     std::bind(&JointPositionAdaptableController::targetCallback, this, std::placeholders::_1));

@@ -60,6 +60,63 @@ inline std::string getRobotNameFromDescription(const std::string& robot_descript
   return robot_name;
 }
 
+
+inline bool getJointVelocityLimitsFromDescription(const std::string& robot_description,
+                                               const rclcpp::Logger& logger, std::array<double, 7> &joint_velocity_limits) {
+
+  tinyxml2::XMLDocument doc;
+
+  if (doc.Parse(robot_description.c_str()) != tinyxml2::XML_SUCCESS) {
+    RCLCPP_ERROR(logger, "Failed to parse robot_description");
+    return false;
+  }
+
+  tinyxml2::XMLElement* robot = doc.FirstChildElement("robot");
+  if (!robot) {
+    RCLCPP_ERROR(logger, "No <robot> element found in URDF");
+    return false;
+  }
+
+  int i = 0;
+
+  for (tinyxml2::XMLElement* joint = robot->FirstChildElement("joint"); joint != nullptr; joint = joint->NextSiblingElement("joint")) {
+    std::string joint_name = std::string(joint->Attribute("name"));
+    std::string joint_type = std::string(joint->Attribute("type"));
+
+    // Only consider movable joints (revolute, continuous, prismatic)
+    if (joint_type != "revolute" && joint_type != "continuous" && joint_type != "prismatic") {
+      continue;
+    }
+
+    tinyxml2::XMLElement* limit = joint->FirstChildElement("limit");
+    if (!limit) {
+      continue;
+    }
+
+    double velocity = 0.0;
+    if (limit->QueryDoubleAttribute("velocity", &velocity) != tinyxml2::XML_SUCCESS) {
+      continue; // no velocity attribute
+    }
+
+    if(i >= 7) {
+      RCLCPP_ERROR(logger, "Too many limits %s %s %f", joint_name.c_str(), joint_type.c_str(), velocity);
+      continue;
+    }
+
+    int joint_number = joint_name.back() - '0';  // char → int
+    if(joint_number != i+1){
+      RCLCPP_ERROR(logger, "Joint name number does not match array index %d %d", joint_number, i);
+    }
+
+    RCLCPP_INFO(logger, "Limit %s %d %f", joint_name.c_str(), joint_number, velocity);
+    joint_velocity_limits[i] = velocity;
+    i++;
+  }
+
+  return true;
+}
+
+
 // Extracts the joint names and their corresponding command and state interfaces
 // from robot_description XML string.
 // Populates the joint_interfaces map with

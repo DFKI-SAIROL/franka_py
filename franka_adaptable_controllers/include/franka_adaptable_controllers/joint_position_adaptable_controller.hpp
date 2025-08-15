@@ -40,25 +40,37 @@ class JointPositionAdaptableController : public controller_interface::Controller
   CallbackReturn on_configure(const rclcpp_lifecycle::State& previous_state) override;
   CallbackReturn on_activate(const rclcpp_lifecycle::State& previous_state) override;
 
+  double calculateT(double delta_q, double max_joint_velocity, double max_joint_acceleration);
+  void targetCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
+
  private:
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr target_subscriber_;
+
   std::string arm_id_;
-  bool is_gazebo_{false};
   std::string robot_description_;
+  bool is_gazebo_ = false;
+  bool is_target_relative_ = true;
+  bool use_target_directly_ = false;
+
   const int num_joints = 7;
+  double trajectory_period_ = 0.001;
+  std::array<double, 7> joint_velocity_limit_{1, 1, 1, 1, 1, 1, 1}; // will be overwritten by robot_decription
+  std::array<double, 7> joint_acceleration_limit_{10, 10, 10, 10, 10, 10, 10};
+
+  bool initialization_flag_ = true;
+  double initial_robot_time_ = 0.0;
   std::array<double, 7> initial_q_{0, 0, 0, 0, 0, 0, 0};
   double elapsed_time_ = 0.0;
-  double initial_robot_time_ = 0.0;
   double robot_time_ = 0.0;
-  double trajectory_period_ = 0.001;
-  bool initialization_flag_{true};
-  rclcpp::Time start_time_;
 
-  bool is_target_relative_{true};
+  // motion
+  bool is_in_motion_ = false;
+  double motion_start_time_;
+  double motion_duration_ = 0;
+  double motion_duration_safety_factor_ = 1.2;
+  std::array<double, 7> motion_start_position_, motion_goal_position_;
 
-  std::array<double, 7> current_target_q_{0, 0, 0, 0, 0, 0, 0};
 
-  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr target_subscriber_;
-  void targetCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
 };
 
 }  // namespace franka_adaptable_controllers
