@@ -66,7 +66,25 @@ controller_interface::return_type JointPositionAdaptableController::update(const
     {
       initial_q_[i] = state_interfaces_[i].get_value();
       motion_goal_position_[i] = initial_q_[i];
+      RCLCPP_WARN(get_node()->get_logger(), "JOAC: init q %d %.4f", i, initial_q_[i]);
     }
+
+
+    if(is_target_relative_)
+    {
+      for (int i = 0; i < num_joints; ++i) 
+      { 
+        current_target_q_[i] = 0;
+      }
+    }
+    else
+    {
+      for (int i = 0; i < num_joints; ++i) 
+      { 
+        current_target_q_[i] = initial_q_[i];
+      }
+    }
+
 
     if (!is_gazebo_) 
     {
@@ -90,6 +108,7 @@ controller_interface::return_type JointPositionAdaptableController::update(const
   {
     for (int i = 0; i < num_joints; ++i) 
     {    
+      RCLCPP_WARN(get_node()->get_logger(), "JOAC: target %d: %f", i, motion_goal_position_[i]);
       command_interfaces_[i].set_value(motion_goal_position_[i]);    
     }
   }
@@ -114,6 +133,7 @@ controller_interface::return_type JointPositionAdaptableController::update(const
         double tau = (elapsed_time_ - motion_start_time_) / motion_duration_;
         double h_tau = 10*std::pow(tau,3)-15*std::pow(tau,4)+6*std::pow(tau,5);
         double current_q = motion_start_position_[i] + (motion_goal_position_[i] - motion_start_position_[i]) * h_tau;
+        RCLCPP_WARN(get_node()->get_logger(), "JOAC: motion %d: %f", i, current_q);
         command_interfaces_[i].set_value(current_q);    
       }
     }
@@ -173,6 +193,11 @@ void JointPositionAdaptableController::targetCallback(const std_msgs::msg::Float
   }
 
   RCLCPP_DEBUG(get_node()->get_logger(), "Updated target_q from topic, start new motion with duration %f", motion_duration_);
+  for (int i = 0; i < num_joints; ++i) 
+  {
+    RCLCPP_WARN(get_node()->get_logger(), "JOAC: target cb %d %.4f", i, motion_goal_position_[i]);
+  }
+
 }
 
 CallbackReturn JointPositionAdaptableController::on_init() 
