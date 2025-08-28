@@ -55,7 +55,7 @@ controller_interface::InterfaceConfiguration JointPositionAdaptableController::s
   }
 
   // add the robot time interface
-  if (!is_gazebo_) 
+  if (!is_gazebo_ && !use_fake_hardware_) 
   {
     config.names.push_back(arm_id_ + "/robot_time");
   }
@@ -78,14 +78,14 @@ controller_interface::return_type JointPositionAdaptableController::update(const
       RCLCPP_WARN(get_node()->get_logger(), "JOAC: init q %d %.4f", i, initial_q_[i]);
     }
 
-    if (!is_gazebo_) 
+    if (!is_gazebo_ && !use_fake_hardware_) 
     {
       initial_robot_time_ = state_interfaces_.back().get_value();
     }
   } 
   else 
   {
-    if (!is_gazebo_) 
+    if (!is_gazebo_ && !use_fake_hardware_) 
     {
       robot_time_ = state_interfaces_.back().get_value();
       elapsed_time_ = robot_time_ - initial_robot_time_;
@@ -279,6 +279,7 @@ CallbackReturn JointPositionAdaptableController::on_init()
   try 
   {
     auto_declare<bool>("gazebo", false);
+    auto_declare<bool>("use_fake_hardware", false);
     auto_declare<bool>("is_target_relative", true);
     auto_declare<bool>("use_target_directly", false);
     auto_declare<bool>("control_joint_position", false);
@@ -295,6 +296,7 @@ CallbackReturn JointPositionAdaptableController::on_init()
 CallbackReturn JointPositionAdaptableController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) 
 {
   is_gazebo_ = get_node()->get_parameter("gazebo").as_bool();
+  use_fake_hardware_ = get_node()->get_parameter("use_fake_hardware").as_bool();
   is_target_relative_ = get_node()->get_parameter("is_target_relative").as_bool();
   use_target_directly_ = get_node()->get_parameter("use_target_directly").as_bool();
   control_joint_position_ = get_node()->get_parameter("control_joint_position").as_bool();

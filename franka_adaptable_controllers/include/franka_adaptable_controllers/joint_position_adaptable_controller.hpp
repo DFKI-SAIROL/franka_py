@@ -52,6 +52,7 @@ class JointPositionAdaptableController : public controller_interface::Controller
   std::string arm_id_;
   std::string robot_description_;
   bool is_gazebo_ = false;
+  bool use_fake_hardware_ = false;
   bool is_target_relative_ = true;
   bool use_target_directly_ = false;
   bool control_joint_position_ = false;
