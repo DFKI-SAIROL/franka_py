@@ -49,7 +49,7 @@ import os
 import sys
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -59,6 +59,10 @@ from launch_ros.substitutions import FindPackageShare
 package_share = get_package_share_directory('franka_launch')
 utils_path = os.path.join(package_share, '..', '..', 'lib', 'franka_launch', 'utils')
 sys.path.append(os.path.abspath(utils_path))
+
+# log launch file with debug
+import logging
+logging.root.setLevel(logging.INFO)
 
 from launch_utils import load_yaml  # noqa: E402
 
@@ -73,43 +77,53 @@ from launch_utils import load_yaml  # noqa: E402
 def generate_robot_nodes(context):
     config_file = LaunchConfiguration('robot_config_file').perform(context)
     controller_name = LaunchConfiguration('controller_name').perform(context)
+    spawn_franka_left_launch_configuration = LaunchConfiguration('spawn_franka_left').perform(context)
+    spawn_franka_left = spawn_franka_left_launch_configuration.lower() == 'true'
+    spawn_franka_right_launch_configuration = LaunchConfiguration('spawn_franka_right').perform(context)
+    spawn_franka_right = spawn_franka_right_launch_configuration.lower() == 'true'
+    
     configs = load_yaml(config_file)
     nodes = []
+    print("param", spawn_franka_left, spawn_franka_right)
     for item_name, config in configs.items():
-        namespace = config['namespace']
-        nodes.append(
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    PathJoinSubstitution([
-                        FindPackageShare('franka_launch'), 'launch', 'franka.launch.py'
-                    ])
-                ),
-                launch_arguments={
-                    'arm_id': str(config['arm_id']),
-                    'arm_prefix': str(config['arm_prefix']),
-                    'namespace': str(namespace),
-                    'urdf_file': str(config['urdf_file']),
-                    'robot_ip': str(config['robot_ip']),
-                    'load_gripper': str(config['load_gripper']),
-                    'use_fake_hardware': str(config['use_fake_hardware']),
-                    'fake_sensor_commands': str(config['fake_sensor_commands']),
-                    'joint_state_rate': str(config['joint_state_rate']),
-                }.items(),
+        if item_name == "franka_left" and spawn_franka_left or item_name == "franka_right" and spawn_franka_right: 
+            print("Spawn", item_name)
+            namespace = config['namespace']
+            nodes.append(
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(
+                        PathJoinSubstitution([
+                            FindPackageShare('franka_launch'), 'launch', 'franka.launch.py'
+                        ])
+                    ),
+                    launch_arguments={
+                        'arm_id': str(config['arm_id']),
+                        'arm_prefix': str(config['arm_prefix']),
+                        'namespace': str(namespace),
+                        'urdf_file': str(config['urdf_file']),
+                        'robot_ip': str(config['robot_ip']),
+                        'load_gripper': str(config['load_gripper']),
+                        'use_fake_hardware': str(config['use_fake_hardware']),
+                        'fake_sensor_commands': str(config['fake_sensor_commands']),
+                        'joint_state_rate': str(config['joint_state_rate']),
+                        'xyz': str(config['xyz']),
+                        'rpy': str(config['rpy']),
+                    }.items(),
+                )
             )
-        )
-        nodes.append(
-            Node(
-                package='controller_manager',
-                executable='spawner',
-                namespace=namespace,
-                arguments=[controller_name, '--controller-manager-timeout', '30'],
-                parameters=[
-                    PathJoinSubstitution([
-                        FindPackageShare('franka_launch'), 'config', "controllers.yaml",
-                    ])],
-                output='screen',
+            nodes.append(
+                Node(
+                    package='controller_manager',
+                    executable='spawner',
+                    namespace=namespace,
+                    arguments=[controller_name, '--controller-manager-timeout', '30'],
+                    parameters=[
+                        PathJoinSubstitution([
+                            FindPackageShare('franka_launch'), 'config', "controllers.yaml",
+                        ])],
+                    output='screen',
+                )
             )
-        )
     if any(str(config.get('use_rviz', 'false')).lower() == 'true' for config in configs.values()):
         nodes.append(
             Node(
@@ -117,7 +131,7 @@ def generate_robot_nodes(context):
                 executable='rviz2',
                 name='rviz2',
                 arguments=['--display-config', PathJoinSubstitution([
-                    FindPackageShare('franka_description'), 'rviz', 'visualize_franka.rviz'
+                    FindPackageShare('franka_launch'), 'rviz', 'visualize_franka.rviz'
                 ])],
                 output='screen',
             )
@@ -139,6 +153,16 @@ def generate_launch_description():
                 FindPackageShare('franka_launch'), 'config', 'franka.config.yaml'
             ]),
             description='Path to the robot configuration file to load',
+        ),
+        DeclareLaunchArgument(
+            'spawn_franka_left',
+            default_value='true',
+            description='Spawn franka left',
+        ),
+        DeclareLaunchArgument(
+            'spawn_franka_right',
+            default_value='true',
+            description='Spawn franka right',
         ),
         DeclareLaunchArgument(
             'controller_name',

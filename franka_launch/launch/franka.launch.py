@@ -89,6 +89,8 @@ def generate_robot_nodes(context):
     load_gripper = load_gripper_launch_configuration.lower() == 'true'
     use_fake_hardware_launch_configuration = LaunchConfiguration('use_fake_hardware').perform(context)
     use_fake_hardware = use_fake_hardware_launch_configuration.lower() == 'true'
+    arm_id = LaunchConfiguration('arm_id').perform(context)
+    arm_prefix = LaunchConfiguration('arm_prefix').perform(context)
     urdf_path = PathJoinSubstitution([
         FindPackageShare('franka_description'), 'robots', LaunchConfiguration('urdf_file')
     ]).perform(context)
@@ -102,6 +104,8 @@ def generate_robot_nodes(context):
             'hand': load_gripper_launch_configuration,
             'use_fake_hardware': LaunchConfiguration('use_fake_hardware').perform(context),
             'fake_sensor_commands': LaunchConfiguration('fake_sensor_commands').perform(context),
+            'xyz': LaunchConfiguration('xyz').perform(context),
+            'rpy': LaunchConfiguration('rpy').perform(context),
         }
     ).toprettyxml(indent='  ')
 
@@ -127,9 +131,14 @@ def generate_robot_nodes(context):
             namespace=namespace,
             parameters=[
                 controllers_yaml,
-                {'robot_description': robot_description},
-                {'load_gripper': load_gripper},
-                {'use_fake_hardware': use_fake_hardware}],
+                {
+                    'robot_description': robot_description,
+                    'load_gripper': load_gripper,
+                    'use_fake_hardware': use_fake_hardware,
+                    'arm_id': arm_id,
+                    'arm_prefix': arm_prefix
+                }
+            ],
             remappings=[('joint_states', joint_state_publisher_sources[0])],
             output='screen',
             on_exit=Shutdown(),
@@ -207,8 +216,14 @@ def generate_launch_description():
                               default_value='false',
                               description='Fake sensor commands'),
         DeclareLaunchArgument('joint_state_rate',
-                              default_value='30',
+                              default_value='100',
                               description='Rate for joint state publishing (Hz)'),
+        DeclareLaunchArgument('xyz',
+                              default_value='[0, 0, 0]',
+                              description='Robot offset from world'),
+        DeclareLaunchArgument('rpy',
+                              default_value='[0, 0, 0]',
+                              description='Robot offset from world'),
     ]
 
     return LaunchDescription(launch_args + [OpaqueFunction(function=generate_robot_nodes)])

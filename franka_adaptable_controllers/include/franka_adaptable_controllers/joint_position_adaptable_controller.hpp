@@ -50,6 +50,7 @@ class JointPositionAdaptableController : public controller_interface::Controller
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr debug_publisher_;
 
   std::string arm_id_;
+  std::string arm_prefix_;
   std::string robot_description_;
   bool is_gazebo_ = false;
   bool use_fake_hardware_ = false;
@@ -72,7 +73,7 @@ class JointPositionAdaptableController : public controller_interface::Controller
   bool is_in_motion_ = false;
   double motion_start_time_;
   double motion_duration_ = 0;
-  double motion_duration_safety_factor_ = 0.1;
+  double motion_duration_safety_factor_ = 0.2;
   double restart_joint_distance_ = 0.001;
   std::array<double, 7> motion_start_position_, motion_goal_position_;
 
