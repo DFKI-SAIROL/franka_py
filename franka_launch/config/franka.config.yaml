@@ -8,20 +8,52 @@
 # Not all parameters are currently used but are included for future compatibility.
 # Ensure each robot has a unique namespace to prevent topic conflicts.
 
-franka_left: # Arbitrary identifier for the first robot (a Mnemonic) 
-  arm_id: "fr3" # Reserved for future use, unique arm (i.e. robot model) identifier
-  arm_prefix: "franka_left" # Reserved for future use (e.g., robot unique prefix)
-  fake_sensor_commands: "false" # Enable fake sensor commands for simulation
-  joint_state_rate: 100 # Publishing rate for joint states (Hz)
-  load_gripper: "false" # Enable Franka Gripper ("true" or "false")
-  namespace: "franka_left" # Namespace for robot, any string (empty string allowed - meaningful names recommended)
-  robot_ip: "192.168.0.4" # Robot’s IP address or hostname
-  urdf_file: "fr3/fr3.urdf.xacro" # Relative path to URDF in franka_description/robots
-  use_fake_hardware: "false" # Use simulated hardware ("true" or "false")
-  use_rviz: "true" # Launch RViz if "true" (single instance for all namespaces)
+# # franka example
+# franka_example: # Arbitrary identifier for the first robot (a Mnemonic) 
+#   arm_id: "fr3" # Reserved for future use, unique arm (i.e. robot model) identifier
+#   arm_prefix: "franka_main" # Reserved for future use (e.g., robot unique prefix)
+#   fake_sensor_commands: "false" # Enable fake sensor commands for simulation
+#   joint_state_rate: 100 # Publishing rate for joint states (Hz)
+#   load_gripper: "false" # Enable Franka Gripper ("true" or "false")
+#   namespace: "franka_main" # Namespace for robot, any string (empty string allowed - meaningful names recommended)
+#   robot_ip: "172.16.0.2" # Robot’s IP address or hostname
+#   urdf_file: "fr3/fr3.urdf.xacro" # Relative path to URDF in franka_description/robots
+#   use_fake_hardware: "false" # Use simulated hardware ("true" or "false")
+#   use_rviz: "true" # Launch RViz if "true" (single instance for all namespaces)
+#   xyz: "0 0 0"
+#   rpy: "0 0 0"
+
+# franka for single arm setup
+franka_main:
+  arm_id: "fr3"
+  arm_prefix: "franka_main"
+  fake_sensor_commands: "false"
+  joint_state_rate: 100
+  load_gripper: "false"
+  namespace: "franka_main"
+  robot_ip: "172.16.0.2"
+  urdf_file: "fr3/fr3.urdf.xacro"
+  use_fake_hardware: "false"
+  use_rviz: "false"
+  xyz: "0 0 0"
+  rpy: "0 0 0"
+
+# left franka for dual arm setup
+franka_left:
+  arm_id: "fr3"
+  arm_prefix: "franka_left"
+  fake_sensor_commands: "false"
+  joint_state_rate: 100
+  load_gripper: "false"
+  namespace: "franka_left"
+  robot_ip: "192.168.0.4"
+  urdf_file: "fr3/fr3.urdf.xacro"
+  use_fake_hardware: "false"
+  use_rviz: "true"
   xyz: "-0.06 0.585 0"
   rpy: "0 0 0"
 
+# right franka for dual arm setup
 franka_right:
   arm_id: "fr3"
   arm_prefix: "franka_right"
@@ -35,17 +67,3 @@ franka_right:
   use_rviz: "false" 
   xyz: "-0.06 -0.585 0"
   rpy: "0 0 0"
-
-# Uncomment the following lines to add more robots in Namespaces
-# ROBOT3:
-#   arm_id: ""
-#   arm_prefix: ""
-#   fake_sensor_commands: "false"
-#   joint_state_rate: 30
-#   load_gripper: "false"
-#   namespace: "NS_3"
-#   robot_ip: "172.16.0.5"
-#   urdf_file: "fr3/fr3.urdf.xacro"
-#   use_fake_hardware: "false"
-#   use_rviz: "false"  
-

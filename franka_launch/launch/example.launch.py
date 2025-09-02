@@ -59,12 +59,12 @@ from launch_ros.substitutions import FindPackageShare
 package_share = get_package_share_directory('franka_launch')
 utils_path = os.path.join(package_share, '..', '..', 'lib', 'franka_launch', 'utils')
 sys.path.append(os.path.abspath(utils_path))
+from launch_utils import load_yaml  # noqa: E402
 
 # log launch file with debug
 import logging
 logging.root.setLevel(logging.INFO)
 
-from launch_utils import load_yaml  # noqa: E402
 
 # Iterates over the uncommented lines in file specified by the robot_config_file parameter.
 # "Includes" franka.launch.py for each active (uncommented) Robot.
@@ -73,22 +73,32 @@ from launch_utils import load_yaml  # noqa: E402
 # If so, it includes a node for RViz to visualize the robot's state.
 # The function returns a list of nodes to be launched.
 
-
 def generate_robot_nodes(context):
-    config_file = LaunchConfiguration('robot_config_file').perform(context)
-    controller_name = LaunchConfiguration('controller_name').perform(context)
-    spawn_franka_left_launch_configuration = LaunchConfiguration('spawn_franka_left').perform(context)
-    spawn_franka_left = spawn_franka_left_launch_configuration.lower() == 'true'
-    spawn_franka_right_launch_configuration = LaunchConfiguration('spawn_franka_right').perform(context)
-    spawn_franka_right = spawn_franka_right_launch_configuration.lower() == 'true'
-    
-    configs = load_yaml(config_file)
     nodes = []
-    print("param", spawn_franka_left, spawn_franka_right)
+    config_file = LaunchConfiguration('robot_config_file').perform(context)
+    configs = load_yaml(config_file)
+    controller_name = LaunchConfiguration('controller_name').perform(context)
+
+    spawn_robots = []
+    if LaunchConfiguration('spawn_franka_main').perform(context).lower() == 'true':
+        spawn_robots.append("franka_main")
+    if LaunchConfiguration('spawn_franka_left').perform(context).lower() == 'true':
+        spawn_robots.append("franka_left")
+    if LaunchConfiguration('spawn_franka_right').perform(context).lower() == 'true':
+        spawn_robots.append("franka_right")
+    
     for item_name, config in configs.items():
-        if item_name == "franka_left" and spawn_franka_left or item_name == "franka_right" and spawn_franka_right: 
+        if item_name in spawn_robots: 
             print("Spawn", item_name)
             namespace = config['namespace']
+
+            # check overwrite use_fake_hardware
+            use_fake_hardware = config['use_fake_hardware']
+            if LaunchConfiguration('use_fake_hardware').perform(context).lower() == 'true':
+                use_fake_hardware = 'true'
+            if LaunchConfiguration('use_fake_hardware').perform(context).lower() == 'false':
+                use_fake_hardware = 'false'
+
             nodes.append(
                 IncludeLaunchDescription(
                     PythonLaunchDescriptionSource(
@@ -103,7 +113,7 @@ def generate_robot_nodes(context):
                         'urdf_file': str(config['urdf_file']),
                         'robot_ip': str(config['robot_ip']),
                         'load_gripper': str(config['load_gripper']),
-                        'use_fake_hardware': str(config['use_fake_hardware']),
+                        'use_fake_hardware': str(use_fake_hardware),
                         'fake_sensor_commands': str(config['fake_sensor_commands']),
                         'joint_state_rate': str(config['joint_state_rate']),
                         'xyz': str(config['xyz']),
@@ -111,6 +121,7 @@ def generate_robot_nodes(context):
                     }.items(),
                 )
             )
+
             nodes.append(
                 Node(
                     package='controller_manager',
@@ -124,6 +135,7 @@ def generate_robot_nodes(context):
                     output='screen',
                 )
             )
+
     if any(str(config.get('use_rviz', 'false')).lower() == 'true' for config in configs.values()):
         nodes.append(
             Node(
@@ -136,14 +148,15 @@ def generate_robot_nodes(context):
                 output='screen',
             )
         )
+        
     return nodes
+
 
 # The generate_launch_description function is the entry point (like "main")
 # It is called by the ROS 2 launch system when the launch file is executed.
 # via: ros2 launch franka_launch example.launch.py ARGS...
 # This function must return a LaunchDescription object containing nodes to be launched.
 # it calls the generate_robot_nodes function to get the list of nodes to be launched.
-
 
 def generate_launch_description():
     return LaunchDescription([
@@ -155,6 +168,11 @@ def generate_launch_description():
             description='Path to the robot configuration file to load',
         ),
         DeclareLaunchArgument(
+            'spawn_franka_main',
+            default_value='false',
+            description='Spawn franka main',
+        ),
+        DeclareLaunchArgument(
             'spawn_franka_left',
             default_value='true',
             description='Spawn franka left',
@@ -163,6 +181,11 @@ def generate_launch_description():
             'spawn_franka_right',
             default_value='true',
             description='Spawn franka right',
+        ),
+        DeclareLaunchArgument(
+            'use_fake_hardware',
+            default_value='true',
+            description='Overwrite use_fake_hardware from config file for all robots (true/false to overwrite, config_value else)',
         ),
         DeclareLaunchArgument(
             'controller_name',
