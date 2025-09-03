@@ -57,8 +57,8 @@
       joint_position_adaptable_controller:
         type: franka_adaptable_controllers/JointPositionAdaptableController
 
-      joint_trajectory_controller:
-        type: joint_trajectory_controller/JointTrajectoryController
+      franka_joint_trajectory_controller:
+        type: franka_joint_trajectory_controller/FrankaJointTrajectoryController
 
 /**:
   joint_position_adaptable_controller:
@@ -209,7 +209,7 @@
         - 5.0
 
 /**:
-  joint_trajectory_controller:
+  franka_joint_trajectory_controller:
     ros__parameters:
       joints:
         - fr3_joint1
@@ -228,69 +228,13 @@
         - velocity
 
       gains:
-
-        fr3_joint1:
-          angle_wraparound: false
-          d: 2.0
-          ff_velocity_scale: 0.0
-          i: 0.0
-          i_clamp: 0.0
-          normalize_error: false
-          p: 24.0
-
-        fr3_joint2:
-          angle_wraparound: false
-          d: 2.0
-          ff_velocity_scale: 0.0
-          i: 0.0
-          i_clamp: 0.0
-          normalize_error: false
-          p: 24.0
-
-        fr3_joint3:
-          angle_wraparound: false
-          d: 2.0
-          ff_velocity_scale: 0.0
-          i: 0.0
-          i_clamp: 0.0
-          normalize_error: false
-          p: 24.0
-
-        fr3_joint4:
-          angle_wraparound: false
-          d: 1.0
-          ff_velocity_scale: 0.0
-          i: 0.0
-          i_clamp: 0.0
-          normalize_error: false
-          p: 24.0
-
-        fr3_joint5:
-          angle_wraparound: false
-          d: 1.0
-          ff_velocity_scale: 0.0
-          i: 0.0
-          i_clamp: 0.0
-          normalize_error: false
-          p: 10.0
-
-        fr3_joint6:
-          angle_wraparound: false
-          d: 1.0
-          ff_velocity_scale: 0.0
-          i: 0.0
-          i_clamp: 0.0
-          normalize_error: false
-          p: 6.0
-          
-        fr3_joint7:
-          angle_wraparound: false
-          d: 0.5
-          ff_velocity_scale: 0.0
-          i: 0.0
-          i_clamp: 0.0
-          normalize_error: false
-          p: 2.0
+        fr3_joint1: {angle_wraparound: false, d: 2.0, ff_velocity_scale: 0.001, i: 0.0, i_clamp: 0.0, normalize_error: false, p: 24.0}
+        fr3_joint2: {angle_wraparound: false, d: 2.0, ff_velocity_scale: 0.001, i: 0.0, i_clamp: 0.0, normalize_error: false, p: 24.0}
+        fr3_joint3: {angle_wraparound: false, d: 2.0, ff_velocity_scale: 0.001, i: 0.0, i_clamp: 0.0, normalize_error: false, p: 24.0}
+        fr3_joint4: {angle_wraparound: false, d: 1.0, ff_velocity_scale: 0.001, i: 0.0, i_clamp: 0.0, normalize_error: false, p: 24.0}
+        fr3_joint5: {angle_wraparound: false, d: 1.0, ff_velocity_scale: 0.001, i: 0.0, i_clamp: 0.0, normalize_error: false, p: 10.0}
+        fr3_joint6: {angle_wraparound: false, d: 1.0, ff_velocity_scale: 0.001, i: 0.0, i_clamp: 0.0, normalize_error: false, p: 6.0}
+        fr3_joint7: {angle_wraparound: false, d: 0.5, ff_velocity_scale: 0.001, i: 0.0, i_clamp: 0.0, normalize_error: false, p: 2.0}
 
       state_publish_rate: 50.0
       action_monitor_rate: 20.0

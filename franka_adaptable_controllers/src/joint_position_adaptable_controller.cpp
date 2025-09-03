@@ -109,7 +109,7 @@ controller_interface::return_type JointPositionAdaptableController::update(const
 
     for (int i = 0; i < num_joints; ++i) 
     {    
-      if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC: target %d: %f", i, motion_goal_position_[i]);
+      // if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC: target %d: %f", i, motion_goal_position_[i]);
       if(control_joint_position_)
       {
         command_interfaces_[i].set_value(motion_goal_position_[i]);    
@@ -137,6 +137,7 @@ controller_interface::return_type JointPositionAdaptableController::update(const
       }
       else
       {
+        RCLCPP_INFO(get_node()->get_logger(), "Finished motion");
         is_in_motion_ = false;
       }
     }
@@ -157,7 +158,7 @@ controller_interface::return_type JointPositionAdaptableController::update(const
           command_interfaces_[i].set_value(0);    
         }
 
-        if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC %d: actual %f %f, motion %f, 0", i, actual_q, actual_dq, motion_goal_position_[i]);
+        // if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC %d: actual %f %f, motion %f, 0", i, actual_q, actual_dq, motion_goal_position_[i]);
         debug_msg.position.push_back(motion_goal_position_[i]); 
         debug_msg.velocity.push_back(0); 
         debug_msg.effort.push_back(0); 
@@ -186,7 +187,7 @@ controller_interface::return_type JointPositionAdaptableController::update(const
           command_interfaces_[i].set_value(current_dq);    
         }
 
-        if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC %d: actual %f %f, motion %f %f %f", i, actual_q, actual_dq, current_q, current_dq, current_ddq);
+        // if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC %d: actual %f %f, motion %f %f %f", i, actual_q, actual_dq, current_q, current_dq, current_ddq);
         debug_msg.position.push_back(current_q); 
         debug_msg.velocity.push_back(current_dq); 
         debug_msg.effort.push_back(current_ddq); 

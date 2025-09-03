@@ -1,0 +1,7 @@
+<library path="franka_joint_trajectory_controller">
+  <class name="franka_joint_trajectory_controller/FrankaJointTrajectoryController" type="franka_joint_trajectory_controller::FrankaJointTrajectoryController" base_class_type="controller_interface::ControllerInterface">
+  <description>
+    The franka joint trajectory controller executes joint-space trajectories on a set of joints
+  </description>
+  </class>
+</library>
