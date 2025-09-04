@@ -32,7 +32,7 @@ controller_interface::InterfaceConfiguration JointPositionAdaptableController::c
   for (int i = 1; i <= num_joints; ++i) 
   {
     if(control_joint_position_)
-    {
+    {      
       config.names.push_back(arm_prefix_ + arm_id_ + "_joint" + std::to_string(i) + "/position");
     }
     else
@@ -319,8 +319,8 @@ CallbackReturn JointPositionAdaptableController::on_configure(const rclcpp_lifec
     RCLCPP_ERROR(get_node()->get_logger(), "Failed to get robot_description parameter.");
   }
 
-  arm_id_ = get_node()->get_parameter("arm_id").as_string();
-  // arm_id_ = robot_utils::getRobotNameFromDescription(robot_description_, get_node()->get_logger());
+  // arm_id_ = get_node()->get_parameter("arm_id").as_string();
+  arm_id_ = robot_utils::getRobotNameFromDescription(robot_description_, get_node()->get_logger());
 
   arm_prefix_ = get_node()->get_parameter("arm_prefix").as_string();
   if(arm_prefix_ != "") 
