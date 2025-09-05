@@ -46,6 +46,7 @@ def generate_robot_nodes(context):
                     parameters=[{
                         'arm_id': str(config['arm_id']),
                         'arm_prefix': str(config['arm_prefix']),
+                        'init_joint_position': config['init_joint_position'],
                     }],
                     output="screen",
                 )
@@ -71,12 +72,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "spawn_franka_left",
-            default_value="false",
+            default_value="true",
             description="Spawn franka left",
         ),
         DeclareLaunchArgument(
             "spawn_franka_right",
-            default_value="true",
+            default_value="false",
             description="Spawn franka right",
         ),
         OpaqueFunction(function=generate_robot_nodes),

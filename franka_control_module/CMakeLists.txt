@@ -9,12 +9,14 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_executable(franka_control_module src/franka_control_module.cpp)
 
 ament_target_dependencies(franka_control_module
   rclcpp
   trajectory_msgs
+  sensor_msgs
 )
 
 install(TARGETS

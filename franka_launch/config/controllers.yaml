@@ -221,7 +221,7 @@
         - fr3_joint7
 
       command_interfaces:
-        - position
+        - effort
 
       state_interfaces:
         - position
@@ -234,7 +234,7 @@
         fr3_joint4: { p: 600., d: 30., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
         fr3_joint5: { p: 250., d: 10., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
         fr3_joint6: { p: 150., d: 10., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
-        fr3_joint7: { p:  50., d:  5., i: 1., i_clamp: 10., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
+        fr3_joint7: { p:  50., d:  5., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.1, normalize_error: false }
 
       state_publish_rate: 50.0
       action_monitor_rate: 20.0
