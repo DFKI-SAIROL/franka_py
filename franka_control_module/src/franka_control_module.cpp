@@ -16,15 +16,10 @@ public:
     : Node("franka_control_module")
     {
         this->declare_parameter("arm_id", "fr3");
-        this->declare_parameter("arm_prefix", "franka_undefined");
         this->declare_parameter("init_joint_position", std::vector<double>(7, 0.0));
 
         arm_id_ = this->get_parameter("arm_id").as_string();
-        arm_prefix_ = this->get_parameter("arm_prefix").as_string();
-        if(arm_prefix_ != "") 
-        {
-            arm_prefix_ += "_";
-        }
+        
         init_joint_position_ = this->get_parameter("init_joint_position").as_double_array();
         if(std::all_of(init_joint_position_.begin(), init_joint_position_.end(), [](double x){ return x == 0.0; }))
         { 
@@ -61,7 +56,7 @@ private:
         msg.header.stamp = this->get_clock()->now();
         for(int i = 1; i <= 7; i++)
         {
-            msg.joint_names.push_back(/*arm_prefix_ +*/ arm_id_ + "_joint" + std::to_string(i));
+            msg.joint_names.push_back(arm_id_ + "_joint" + std::to_string(i));
         }
 
         if(!initialized_)
@@ -85,31 +80,45 @@ private:
         }
         else
         {
-            if(initialized_ && (this->get_clock()->now() - start_time_).seconds() >= 2*M_PI)
+            double periodic_length_factor = 0.5;
+            double movement_factor = 1;
+            int init_time_s = 5;
+            std::chrono::milliseconds trajectory_points_time = 100ms;
+
+
+            if(initialized_ && (this->get_clock()->now() - start_time_).seconds() >= init_time_s)
             {
-                double duration = (this->get_clock()->now() - start_time_).seconds();
-                double value = 1 - 1 * std::cos(1 * duration);
-                double dvalue = 1 * std::sin(1 * duration);
+                double duration = (this->get_clock()->now() - start_time_ - rclcpp::Duration(init_time_s, 0)).seconds();
+                double value = 1 - movement_factor * std::cos(periodic_length_factor * duration);
+                double dvalue = movement_factor * periodic_length_factor * std::sin(periodic_length_factor * duration);
 
                 // Define a trajectory point
                 {
                     trajectory_msgs::msg::JointTrajectoryPoint point;
+
                     point.positions = init_joint_position_;
-                    point.positions[6] += value;
                     point.velocities = std::vector<double>(7, 0.0);
+
+                    point.positions[6] += value;
                     point.velocities[6] += dvalue;
-                    point.time_from_start = rclcpp::Duration(20ms);
+
+                    point.time_from_start = rclcpp::Duration(trajectory_points_time);
+
                     msg.points.push_back(point);
                 }
 
                 // Define a trajectory point
                 {
                     trajectory_msgs::msg::JointTrajectoryPoint point;
+
                     point.positions = init_joint_position_;
-                    point.positions[6] += value + dvalue * 0.02;
                     point.velocities = std::vector<double>(7, 0.0);
+
+                    point.positions[6] += value + dvalue * rclcpp::Duration(trajectory_points_time).seconds();
                     point.velocities[6] += dvalue;
-                    point.time_from_start = rclcpp::Duration(40ms);
+
+                    point.time_from_start = rclcpp::Duration(2*trajectory_points_time);
+
                     msg.points.push_back(point);
                 }
 
@@ -128,7 +137,6 @@ private:
     bool initialized_ = false;
 
     std::string arm_id_;
-    std::string arm_prefix_;
     std::vector<double> init_joint_position_;
     
 };

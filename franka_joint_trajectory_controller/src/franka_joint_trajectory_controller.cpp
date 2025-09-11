@@ -1495,8 +1495,8 @@ bool FrankaJointTrajectoryController::validate_trajectory_msg(
     if (it == params_.joints.end())
     {
       RCLCPP_ERROR(
-        get_node()->get_logger(), "Incoming joint %s doesn't match the controller's joints.",
-        incoming_joint_name.c_str());
+        get_node()->get_logger(), "Incoming joint %s doesn't match the controller's joints (%s)",
+        incoming_joint_name.c_str(), params_.joints.begin()->c_str());
       return false;
     }
   }
