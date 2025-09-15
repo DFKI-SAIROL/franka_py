@@ -132,7 +132,6 @@ def generate_robot_nodes(context):
             parameters=[
                 controllers_yaml,
                 {
-                    'robot_description': robot_description,
                     'load_gripper': load_gripper,
                     'use_fake_hardware': use_fake_hardware,
                     'arm_id': arm_id,

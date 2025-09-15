@@ -27,6 +27,11 @@ public:
             exit(-1);
         }
 
+        if(init_joint_position_[6] == 0.8) // left
+        {
+            periodic_length_factor = 0.4;
+        }
+
         start_time_ = this->get_clock()->now();
 
         joint_trajectory_publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
@@ -80,12 +85,6 @@ private:
         }
         else
         {
-            double periodic_length_factor = 0.5;
-            double movement_factor = 1;
-            int init_time_s = 5;
-            std::chrono::milliseconds trajectory_points_time = 100ms;
-
-
             if(initialized_ && (this->get_clock()->now() - start_time_).seconds() >= init_time_s)
             {
                 double duration = (this->get_clock()->now() - start_time_ - rclcpp::Duration(init_time_s, 0)).seconds();
@@ -138,6 +137,11 @@ private:
 
     std::string arm_id_;
     std::vector<double> init_joint_position_;
+
+    double periodic_length_factor = 0.5;
+    double movement_factor = 1;
+    int init_time_s = 5;
+    std::chrono::milliseconds trajectory_points_time = 100ms;
     
 };
 

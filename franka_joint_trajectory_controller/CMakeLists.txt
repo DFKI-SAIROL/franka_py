@@ -1,24 +1,25 @@
 cmake_minimum_required(VERSION 3.16)
-project(franka_joint_trajectory_controller LANGUAGES CXX)
+project(franka_joint_trajectory_controller)
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "(GNU|Clang)")
-  add_compile_options(-Wall -Wextra -Wconversion)
-endif()
+find_package(ros2_control_cmake REQUIRED)
+set_compiler_options()
+export_windows_symbols()
 
 set(THIS_PACKAGE_INCLUDE_DEPENDS
-    angles
-    control_msgs
-    control_toolbox
-    controller_interface
-    generate_parameter_library
-    hardware_interface
-    pluginlib
-    rclcpp
-    rclcpp_lifecycle
-    realtime_tools
-    rsl
-    tl_expected
-    trajectory_msgs
+  angles
+  control_msgs
+  control_toolbox
+  controller_interface
+  generate_parameter_library
+  hardware_interface
+  pluginlib
+  rclcpp
+  rclcpp_lifecycle
+  realtime_tools
+  rsl
+  tl_expected
+  trajectory_msgs
+  urdf
 )
 
 find_package(ament_cmake REQUIRED)
@@ -42,14 +43,22 @@ target_include_directories(franka_joint_trajectory_controller PUBLIC
   $<INSTALL_INTERFACE:include/franka_joint_trajectory_controller>
 )
 target_link_libraries(franka_joint_trajectory_controller PUBLIC
-  franka_joint_trajectory_controller_parameters
-)
-ament_target_dependencies(franka_joint_trajectory_controller PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS})
+                      franka_joint_trajectory_controller_parameters
+                      control_toolbox::control_toolbox
+                      controller_interface::controller_interface
+                      hardware_interface::hardware_interface
+                      pluginlib::pluginlib
+                      rclcpp::rclcpp
+                      rclcpp_lifecycle::rclcpp_lifecycle
+                      realtime_tools::realtime_tools
+                      rsl::rsl
+                      tl_expected::tl_expected
+                      urdf::urdf
+                      angles::angles
+                      ${trajectory_msgs_TARGETS}
+                      ${control_msgs_TARGETS})
 
-# Causes the visibility macros to use dllexport rather than dllimport,
-# which is appropriate when building the dll but not consuming it.
-target_compile_definitions(franka_joint_trajectory_controller PRIVATE "JOINT_TRAJECTORY_CONTROLLER_BUILDING_DLL" "_USE_MATH_DEFINES")
-pluginlib_export_plugin_description_file(controller_interface joint_trajectory_plugin.xml)
+pluginlib_export_plugin_description_file(controller_interface franka_joint_trajectory_plugin.xml)
 
 install(
   DIRECTORY include/
