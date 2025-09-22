@@ -107,7 +107,7 @@ private:
                 }
 
                 // Define a trajectory point
-                {
+                /*{
                     trajectory_msgs::msg::JointTrajectoryPoint point;
 
                     point.positions = init_joint_position_;
@@ -119,7 +119,7 @@ private:
                     point.time_from_start = rclcpp::Duration(2*trajectory_points_time);
 
                     msg.points.push_back(point);
-                }
+                }*/
 
                 RCLCPP_INFO_ONCE(this->get_logger(), "Publishing periodic trajectory command.");
                 joint_trajectory_publisher_->publish(msg);

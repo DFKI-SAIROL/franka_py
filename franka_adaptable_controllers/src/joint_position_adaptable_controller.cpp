@@ -74,21 +74,21 @@ controller_interface::return_type JointPositionAdaptableController::update(const
     
     for (int i = 0; i < num_joints; ++i) 
     {
-      initial_q_[i] = state_interfaces_[2*i].get_value();
+      initial_q_[i] = state_interfaces_[2*i].get_optional<double>().value();
       motion_goal_position_[i] = initial_q_[i];
       RCLCPP_WARN(get_node()->get_logger(), "JOAC: init q %d %.4f", i, initial_q_[i]);
     }
 
     if (!is_gazebo_ && !use_fake_hardware_) 
     {
-      initial_robot_time_ = state_interfaces_.back().get_value();
+      initial_robot_time_ = state_interfaces_.back().get_optional<double>().value();
     }
   } 
   else 
   {
     if (!is_gazebo_ && !use_fake_hardware_) 
     {
-      robot_time_ = state_interfaces_.back().get_value();
+      robot_time_ = state_interfaces_.back().get_optional<double>().value();
       elapsed_time_ = robot_time_ - initial_robot_time_;
     } 
     else 
@@ -96,6 +96,8 @@ controller_interface::return_type JointPositionAdaptableController::update(const
       elapsed_time_ += trajectory_period_;
     }
   }
+
+  bool cmd_interface_rejected_cmd = false;
 
   sensor_msgs::msg::JointState debug_msg;
   for (int i = 0; i < num_joints; ++i) 
@@ -112,11 +114,11 @@ controller_interface::return_type JointPositionAdaptableController::update(const
       // if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC: target %d: %f", i, motion_goal_position_[i]);
       if(control_joint_position_)
       {
-        command_interfaces_[i].set_value(motion_goal_position_[i]);    
+        cmd_interface_rejected_cmd |= !command_interfaces_[i].set_value(motion_goal_position_[i]);    
       }
       else
       {
-        command_interfaces_[i].set_value(0);    
+        cmd_interface_rejected_cmd |= !command_interfaces_[i].set_value(0.0);    
       }
     }
   }
@@ -127,7 +129,7 @@ controller_interface::return_type JointPositionAdaptableController::update(const
       double max_joint_distance = 0;
       for (int i = 0; i < num_joints; ++i) 
       {
-        max_joint_distance = std::max(max_joint_distance, std::abs(motion_goal_position_[i] - state_interfaces_[2*i].get_value()));
+        max_joint_distance = std::max(max_joint_distance, std::abs(motion_goal_position_[i] - state_interfaces_[2*i].get_optional<double>().value()));
       }
       RCLCPP_INFO(get_node()->get_logger(), "motion error: %f", max_joint_distance);
       if(max_joint_distance > restart_joint_distance_)
@@ -146,18 +148,17 @@ controller_interface::return_type JointPositionAdaptableController::update(const
     {
       for (int i = 0; i < num_joints; ++i) 
       {
-        double actual_q = state_interfaces_[2*i].get_value();
-        double actual_dq = state_interfaces_[2*i+1].get_value();
-
         if(control_joint_position_)
         {
-          command_interfaces_[i].set_value(motion_goal_position_[i]);    
+          cmd_interface_rejected_cmd |= !command_interfaces_[i].set_value(motion_goal_position_[i]);    
         }
         else
         {
-          command_interfaces_[i].set_value(0);    
+          cmd_interface_rejected_cmd |= !command_interfaces_[i].set_value(0.0);    
         }
 
+        // double actual_q = state_interfaces_[2*i].get_optional<double>().value();
+        // double actual_dq = state_interfaces_[2*i+1].get_optional<double>().value();
         // if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC %d: actual %f %f, motion %f, 0", i, actual_q, actual_dq, motion_goal_position_[i]);
         debug_msg.position.push_back(motion_goal_position_[i]); 
         debug_msg.velocity.push_back(0); 
@@ -175,18 +176,18 @@ controller_interface::return_type JointPositionAdaptableController::update(const
         double current_q = motion_start_position_[i] + (motion_goal_position_[i] - motion_start_position_[i]) * h_tau;
         double current_dq = (1 / motion_duration_) * (motion_goal_position_[i] - motion_start_position_[i]) * hd_tau;
         double current_ddq = (1 / std::pow(motion_duration_, 2)) * (motion_goal_position_[i] - motion_start_position_[i]) * hdd_tau;
-        double actual_q = state_interfaces_[2*i].get_value();
-        double actual_dq = state_interfaces_[2*i+1].get_value();
-
+        
         if(control_joint_position_)
         {
-          command_interfaces_[i].set_value(current_q);    
+          cmd_interface_rejected_cmd |= !command_interfaces_[i].set_value(current_q);    
         }
         else
         {
-          command_interfaces_[i].set_value(current_dq);    
+          cmd_interface_rejected_cmd |= !command_interfaces_[i].set_value(current_dq);    
         }
 
+        // double actual_q = state_interfaces_[2*i].get_optional<double>().value();
+        // double actual_dq = state_interfaces_[2*i+1].get_optional<double>().value();
         // if (i==6) RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), log_throttle_duration, "JOAC %d: actual %f %f, motion %f %f %f", i, actual_q, actual_dq, current_q, current_dq, current_ddq);
         debug_msg.position.push_back(current_q); 
         debug_msg.velocity.push_back(current_dq); 
@@ -196,6 +197,12 @@ controller_interface::return_type JointPositionAdaptableController::update(const
   }
 
   debug_publisher_->publish(debug_msg);
+
+  if(cmd_interface_rejected_cmd)
+  {
+    RCLCPP_ERROR(get_node()->get_logger(), "Failed to set command interface value");
+    return controller_interface::return_type::ERROR;
+  }
 
   return controller_interface::return_type::OK;
 }
@@ -268,7 +275,7 @@ void JointPositionAdaptableController::computeMotion(std::array<double, 7> &last
     }
     else
     {
-      motion_start_position_[i] = state_interfaces_[2*i].get_value();
+      motion_start_position_[i] = state_interfaces_[2*i].get_optional<double>().value();
     }
     double delta_q = motion_goal_position_[i] - motion_start_position_[i];
     motion_duration_ = std::max(motion_duration_, calculateT(delta_q, joint_velocity_limit_[i], joint_acceleration_limit_[i]));

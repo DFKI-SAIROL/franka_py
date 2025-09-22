@@ -174,7 +174,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'spawn_franka_left',
-            default_value='false',
+            default_value='true',
             description='Spawn franka left',
         ),
         DeclareLaunchArgument(
@@ -184,7 +184,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'use_fake_hardware',
-            default_value='true',
+            default_value='false',
             description='Overwrite use_fake_hardware from config file for all robots (true/false to overwrite, config_value else)',
         ),
         DeclareLaunchArgument(
