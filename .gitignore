@@ -1045,3 +1045,5 @@ dkms.conf
 *.dis
 
 .vscode
+
+franka_meta_quest/franka_meta_quest/pure_python/*

@@ -61,6 +61,7 @@ class VRPolicy:
         }
         self.update_sensor = True
         self.reset_origin = True
+        self.init = True
         self.robot_origin = None
         self.vr_origin = None
         self.vr_state = None
@@ -77,6 +78,7 @@ class VRPolicy:
             poses, buttons = self.oculus_reader.get_transformations_and_buttons()
             self._state["controller_on"] = time_since_read < num_wait_sec
             if poses == {}:
+                print("poses empty")
                 continue
 
             # Determine Control Pipeline #
@@ -152,15 +154,20 @@ class VRPolicy:
         robot_euler = quat_to_euler(robot_quat)
         robot_gripper = state_dict["gripper_position"]
 
+        if self.init:
+            print("init")
+            self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
+            self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
+            self.init = False
+
         # Reset Origin On Release #
         if self.reset_origin:
             if self._state["movement_enabled"]:
                 print("start movement")
+                self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
+                self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
             else:
-                print("stop movement")
-                
-            self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
-            self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
+                print("stop movement")  
             self.reset_origin = False
 
         if self._vr_state_standstill():
@@ -194,10 +201,31 @@ class VRPolicy:
         lin_vel, rot_vel, gripper_vel = self._limit_velocity(pos_action, euler_action, gripper_action)
 
         # Prepare Return Values #
-        info_dict = {"target_cartesian_position": target_cartesian, "target_gripper_position": target_gripper}
         action = np.concatenate([lin_vel, rot_vel, [gripper_vel]])
         # action = np.concatenate([target_pos_offset, rot_vel, [gripper_vel]])
         action = action.clip(-1, 1)
+
+        # info
+        info_dict = {
+            "movement_enabled": self._state["movement_enabled"],
+            
+            "vr_raw_pos": self.vr_state["pos"],
+            "vr_raw_quat": self.vr_state["quat"],
+            "vr_origin_pos": self.vr_origin["pos"],
+            "vr_origin_quat": self.vr_origin["quat"],
+            "vr_target_pos": target_pos_offset,
+            "vr_target_quat": target_quat_offset,
+
+            "robot_raw_pos": robot_pos,
+            "robot_raw_quat": robot_quat,
+            "robot_origin_pos": self.robot_origin["pos"],
+            "robot_origin_quat": self.robot_origin["quat"],
+            "robot_target_pos": robot_pos_offset,
+            "robot_target_quat": robot_quat_offset,
+
+            "robot_action_pos": pos_action,
+            "robot_action_quat": quat_action,            
+            }
 
         # print("gripper pos", robot_gripper, "target", target_gripper, "action", gripper_action)
 

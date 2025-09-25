@@ -19,7 +19,6 @@ setup(
     maintainer_email='you@example.com',
     description='…',
     license='…',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'oculus_action_main = franka_meta_quest.oculus_action.main:main',
