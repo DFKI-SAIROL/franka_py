@@ -91,6 +91,7 @@ def generate_robot_nodes(context):
     use_fake_hardware = use_fake_hardware_launch_configuration.lower() == 'true'
     arm_id = LaunchConfiguration('arm_id').perform(context)
     arm_prefix = LaunchConfiguration('arm_prefix').perform(context)
+
     urdf_path = PathJoinSubstitution([
         FindPackageShare('franka_description'), 'robots', LaunchConfiguration('urdf_file')
     ]).perform(context)
@@ -106,6 +107,18 @@ def generate_robot_nodes(context):
             'fake_sensor_commands': LaunchConfiguration('fake_sensor_commands').perform(context),
             'xyz': LaunchConfiguration('xyz').perform(context),
             'rpy': LaunchConfiguration('rpy').perform(context),
+        }
+    ).toprettyxml(indent='  ')
+
+    srdf_path = PathJoinSubstitution([
+        FindPackageShare('franka_description'), 'robots', LaunchConfiguration('srdf_file')
+    ]).perform(context)
+    robot_description_semantic = xacro.process_file(
+        srdf_path,
+        mappings={
+            'arm_id': LaunchConfiguration('arm_id').perform(context),
+            'arm_prefix': LaunchConfiguration('arm_prefix').perform(context),
+            'hand': load_gripper_launch_configuration,
         }
     ).toprettyxml(indent='  ')
 

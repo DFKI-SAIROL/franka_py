@@ -111,6 +111,7 @@ def generate_robot_nodes(context):
                         'arm_prefix': str(config['arm_prefix']),
                         'namespace': str(namespace),
                         'urdf_file': str(config['urdf_file']),
+                        'srdf_file': str(config['srdf_file']),
                         'robot_ip': str(config['robot_ip']),
                         'load_gripper': str(config['load_gripper']),
                         'use_fake_hardware': str(use_fake_hardware),
