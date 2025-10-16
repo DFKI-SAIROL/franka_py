@@ -191,6 +191,7 @@ class VRPolicy:
         # Calculate Desired Pose #
         target_pos = pos_action + robot_pos
         target_euler = add_angles(euler_action, robot_euler)
+        target_quat = euler_to_quat(target_euler)
         target_cartesian = np.concatenate([target_pos, target_euler])
         target_gripper = self.vr_state["gripper"]
 
@@ -220,8 +221,8 @@ class VRPolicy:
             "robot_raw_quat": robot_quat,
             "robot_origin_pos": self.robot_origin["pos"],
             "robot_origin_quat": self.robot_origin["quat"],
-            "robot_target_pos": robot_pos_offset,
-            "robot_target_quat": robot_quat_offset,
+            "robot_target_pos": target_pos,
+            "robot_target_quat": target_quat,
 
             "robot_action_pos": pos_action,
             "robot_action_quat": quat_action,            

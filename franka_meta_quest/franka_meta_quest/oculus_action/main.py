@@ -21,7 +21,7 @@ except:
 class CartesianPosePublisher(Node):
 
     def __init__(self):
-        super().__init__('cartesian_pose_publisher')
+        super().__init__('meta_quest')
 
         self.ns = "/franka_right" #self.get_namespace()
 
@@ -99,10 +99,11 @@ class CartesianPosePublisher(Node):
 
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = self.ns + '_fr3_link8'
+        msg.header.frame_id = self.ns + '_fr3_link0'
 
-        msg.pose.position = self.to_ros_point(action[0:3])
-        msg.pose.orientation = self.to_ros_quat(euler_to_quat(action[3:-1]))
+        msg.pose.position =  self.to_ros_point(controller_action_info["robot_target_pos"])
+        msg.pose.orientation = self.to_ros_quat(controller_action_info["robot_target_quat"])
+
         
         self.publisher_.publish(msg)
 
