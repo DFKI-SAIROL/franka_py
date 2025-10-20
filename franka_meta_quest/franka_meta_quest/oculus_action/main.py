@@ -97,7 +97,7 @@ class CartesianPosePublisher(Node):
         target_pose, target_gripper, controller_action_info = self.controller.forward(state_dict)
 
         if controller_action_info == {}:
-            print("empty poses")
+            print(self.ns, "empty poses", flush=True)
             return
 
         msg = PoseStamped()

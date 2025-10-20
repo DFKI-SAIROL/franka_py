@@ -81,7 +81,6 @@ class VRPolicy:
             poses, buttons = self.oculus_reader.get_transformations_and_buttons()
             self._state["controller_on"] = time_since_read < num_wait_sec
             if poses == {}:
-                print(time.time(), "poses empty")
                 continue
 
             # Determine Control Pipeline #
@@ -108,7 +107,7 @@ class VRPolicy:
                 try:
                     rot_mat = np.linalg.inv(rot_mat)
                 except:
-                    print(time.time(), f"exception for rot mat: {rot_mat}")
+                    print(time.time(), f"exception for rot mat: {rot_mat}", flush=True)
                     rot_mat = np.eye(4)
                     self.reset_orientation = True
                 self.vr_to_global_mat = rot_mat
@@ -159,7 +158,7 @@ class VRPolicy:
         robot_gripper = state_dict["gripper_position"]
 
         if self.init:
-            print(time.time(), "init")
+            print(time.time(), "init", flush=True)
             self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
             self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
             self.last_target = {"pos": robot_pos, "quat": robot_quat} 
@@ -168,16 +167,16 @@ class VRPolicy:
         # Reset Origin On Release #
         if self.reset_origin:
             if self._state["movement_enabled"]:
-                print(time.time(), "start movement")
+                print(time.time(), "start movement", flush=True)
                 self.robot_origin = self.last_target
                 self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
             else:
-                print(time.time(), "stop movement")  
+                print(time.time(), "stop movement", flush=True)  
             self.reset_origin = False
 
         if self._vr_state_standstill():
             if self.vr_state != None and self.vr_last_state != None:
-                print(time.time(), "no action detected, meta disconect/calibration?", self.vr_state["pos"], "vs", self.vr_last_state["pos"])
+                print(time.time(), "no action detected, meta disconect/calibration?", self.vr_state["pos"], "vs", self.vr_last_state["pos"], flush=True)
 
         # Calculate Positional Action #
         robot_pos_offset = robot_pos - self.robot_origin["pos"]
@@ -197,7 +196,7 @@ class VRPolicy:
             target_quat = self.last_target["quat"]
 
         if self.reset_to_robot:
-            print(time.time(), "reset target to robot")
+            print(time.time(), "reset target to robot", flush=True)
             self.reset_to_robot = False
             target_pos = robot_pos
             target_quat = robot_quat
