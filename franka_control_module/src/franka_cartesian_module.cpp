@@ -46,7 +46,7 @@ public:
         }
 
         // Publisher
-        cartesian_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("cartesian_target_pose", 10);
+        cartesian_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 10);
 
         // Timer for publishing Cartesian motion
         timer_ = this->create_wall_timer(50ms, std::bind(&FrankaCartesianModule::publish_cartesian_motion, this));
@@ -111,10 +111,10 @@ public:
         ee_iso.linear() = ee_pose.rotation();
         ee_iso.translation() = ee_pose.translation();
 
-        init_pose_.header.frame_id = arm_prefix_ + "fr3_link0";  // or base_link depending on URDF
+        init_pose_.header.frame_id = "base";
         init_pose_.pose = tf2::toMsg(ee_iso);
 
-        RCLCPP_INFO(this->get_logger(), "Initial EE pose computed from robot_description (Pinocchio).");
+        RCLCPP_INFO(this->get_logger(), "Initial EE pose computed from robot_description (Pinocchio): %.3f %.3f %.3f", init_pose_.pose.position.x, init_pose_.pose.position.y, init_pose_.pose.position.z);
         init_pose_calculated_ = true;
         start_time_ = this->get_clock()->now();
     }

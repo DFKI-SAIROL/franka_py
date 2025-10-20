@@ -8,6 +8,19 @@ namespace franka_safety_layer
 
 SafetyNode::SafetyNode() : Node("safety_node")
 {
+  // ROS I/O
+  target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+    "target_cartesian_pose", 10, std::bind(&SafetyNode::targetPoseCallback, this, _1));
+
+  joint_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("franka_joint_trajectory_controller/joint_trajectory", 10);
+
+  RCLCPP_INFO(this->get_logger(), "SafetyNode constructed. Listening on '%s'.", target_pose_sub_->get_topic_name());
+}
+
+void SafetyNode::init()
+{
+  RCLCPP_INFO(this->get_logger(), "1");
+
   move_group_name_ = this->declare_parameter<std::string>("move_group", "fr3");
   
   // MoveIt setup
@@ -16,6 +29,8 @@ SafetyNode::SafetyNode() : Node("safety_node")
   move_group_->setPlanningTime(3.0);
   move_group_->setMaxVelocityScalingFactor(0.4);
   move_group_->setMaxAccelerationScalingFactor(0.4);
+
+  RCLCPP_INFO(this->get_logger(), "2");
 
   // Planning scene monitor for collision checking
   planning_scene_monitor_ =
@@ -31,13 +46,8 @@ SafetyNode::SafetyNode() : Node("safety_node")
     RCLCPP_ERROR(this->get_logger(), "Failed to initialize PlanningSceneMonitor!");
   }
 
-  // ROS I/O
-  target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-    "target_cartesian_pose", 10, std::bind(&SafetyNode::targetPoseCallback, this, _1));
+  RCLCPP_INFO(this->get_logger(), "Initilaization completed");
 
-  joint_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("franka_joint_trajectory_controller/joint_trajectory", 10);
-
-  RCLCPP_INFO(this->get_logger(), "SafetyNode initialized. Listening on '%s'.", target_pose_sub_->get_topic_name());
 }
 
 void SafetyNode::targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
@@ -140,6 +150,8 @@ int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<franka_safety_layer::SafetyNode>();
+  node->init();
+  RCLCPP_INFO(node->get_logger(), "1+");
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;

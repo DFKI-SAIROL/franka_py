@@ -7,12 +7,22 @@ def generate_launch_description():
             package='franka_visualization',
             executable='pose_line_node',
             name='pose_line_node',
+            namespace='franka_right',
             output='screen',
             parameters=[{
-                'topics': ['/robot1/pose', '/robot2/pose'],
                 'line_length': 500,
                 'min_distance': 0.001,
-                'publish_topic': '/pose_lines'
+            }]
+        ),
+        Node(
+            package='franka_visualization',
+            executable='pose_line_node',
+            name='pose_line_node',
+            namespace='franka_left',
+            output='screen',
+            parameters=[{
+                'line_length': 500,
+                'min_distance': 0.001,
             }]
         )
     ])

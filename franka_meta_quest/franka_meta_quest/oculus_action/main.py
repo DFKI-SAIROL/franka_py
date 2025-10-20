@@ -23,7 +23,7 @@ class CartesianPosePublisher(Node):
     def __init__(self):
         super().__init__('meta_quest')
 
-        self.ns = "/franka_right" #self.get_namespace()
+        self.ns = self.get_namespace()
 
         self.joint_subscriber_ = self.create_subscription(JointState, self.ns + '/joint_states', self.joint_state_callback, 1)
         self.publisher_ = self.create_publisher(PoseStamped, self.ns + '/target_cartesian_pose', 1)
@@ -35,7 +35,7 @@ class CartesianPosePublisher(Node):
 
         self.current_joint_state = JointState()
 
-        self.controller = VRPolicy()
+        self.controller = VRPolicy(right_controller=(self.ns == "/franka_right"))
 
         self.controller.reset_state()
 
@@ -81,6 +81,8 @@ class CartesianPosePublisher(Node):
     def timer_callback(self):
 
         controller_info = self.controller.get_info()
+
+        # if not lower lever pressed, do not update target. implemented in controler.forward method
         skip_action = not controller_info["movement_enabled"]
 
         succ, translation, rotation = self.lookup_transform()
@@ -92,19 +94,17 @@ class CartesianPosePublisher(Node):
         state_dict["cartesian_rotation"] = rotation
         state_dict["gripper_position"] = 0
         
-        action, controller_action_info = self.controller.forward(state_dict)
+        target_pose, target_gripper, controller_action_info = self.controller.forward(state_dict)
 
-        if skip_action:
-            action = np.zeros(7)
+        if controller_action_info == {}:
+            print("empty poses")
+            return
 
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.ns + '_fr3_link0'
-
-        msg.pose.position =  self.to_ros_point(controller_action_info["robot_target_pos"])
-        msg.pose.orientation = self.to_ros_quat(controller_action_info["robot_target_quat"])
-
-        
+        msg.pose.position =  self.to_ros_point(target_pose[0:3])
+        msg.pose.orientation = self.to_ros_quat(target_pose[3:7])
         self.publisher_.publish(msg)
 
         if controller_action_info != {}:
@@ -121,8 +121,8 @@ class CartesianPosePublisher(Node):
             debug_msg.vr_origin.position =  self.to_ros_point(controller_action_info["vr_origin_pos"])
             debug_msg.vr_origin.orientation = self.to_ros_quat(controller_action_info["vr_origin_quat"])
 
-            debug_msg.vr_target_pose.position =  self.to_ros_point(controller_action_info["vr_target_pos"])
-            debug_msg.vr_target_pose.orientation = self.to_ros_quat(controller_action_info["vr_target_quat"])
+            debug_msg.vr_pose.position =  self.to_ros_point(controller_action_info["vr_pos"])
+            debug_msg.vr_pose.orientation = self.to_ros_quat(controller_action_info["vr_quat"])
 
             debug_msg.robot_raw_pose.position =  self.to_ros_point(controller_action_info["robot_raw_pos"])
             debug_msg.robot_raw_pose.orientation = self.to_ros_quat(controller_action_info["robot_raw_quat"])
@@ -130,11 +130,12 @@ class CartesianPosePublisher(Node):
             debug_msg.robot_origin.position =  self.to_ros_point(controller_action_info["robot_origin_pos"])
             debug_msg.robot_origin.orientation = self.to_ros_quat(controller_action_info["robot_origin_quat"])
 
+            debug_msg.robot_pose.position =  self.to_ros_point(controller_action_info["robot_pos"])
+            debug_msg.robot_pose.orientation = self.to_ros_quat(controller_action_info["robot_quat"])
+
             debug_msg.robot_target_pose.position =  self.to_ros_point(controller_action_info["robot_target_pos"])
             debug_msg.robot_target_pose.orientation = self.to_ros_quat(controller_action_info["robot_target_quat"])
 
-            debug_msg.robot_action.position =  self.to_ros_point(controller_action_info["robot_action_pos"])
-            debug_msg.robot_action.orientation = self.to_ros_quat(controller_action_info["robot_action_quat"])
 
             self.debug_publisher_.publish(debug_msg)
 

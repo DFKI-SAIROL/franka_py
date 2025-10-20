@@ -6,7 +6,7 @@ from scipy.spatial.transform import Rotation
 try:
     from .oculus_reader import OculusReader
     from .subprocess_utils import run_threaded_command
-    from .transformations import add_angles, euler_to_quat, quat_diff, quat_to_euler, rmat_to_quat
+    from .transformations import add_angles, add_quats, euler_to_quat, quat_diff, quat_to_euler, rmat_to_quat
 except:
     from oculus_reader import OculusReader
     from subprocess_utils import run_threaded_command
@@ -44,6 +44,7 @@ class VRPolicy:
         self.gripper_action_gain = gripper_action_gain
         self.global_to_env_mat = vec_to_reorder_mat(rmat_reorder)
         self.controller_id = "r" if right_controller else "l"
+        self.extended_controller_id = "right" if right_controller else "left"
         self.reset_orientation = True
         self.reset_state()
 
@@ -61,11 +62,13 @@ class VRPolicy:
         }
         self.update_sensor = True
         self.reset_origin = True
+        self.reset_to_robot = True
         self.init = True
         self.robot_origin = None
         self.vr_origin = None
         self.vr_state = None
         self.vr_last_state = None
+        self.last_target = None
 
     def _update_internal_state(self, num_wait_sec=5, hz=50):
         last_read_time = time.time()
@@ -78,13 +81,14 @@ class VRPolicy:
             poses, buttons = self.oculus_reader.get_transformations_and_buttons()
             self._state["controller_on"] = time_since_read < num_wait_sec
             if poses == {}:
-                print("poses empty")
+                print(time.time(), "poses empty")
                 continue
 
             # Determine Control Pipeline #
             toggled = self._state["movement_enabled"] != buttons[self.controller_id.upper() + "G"]
             self.update_sensor = self.update_sensor or buttons[self.controller_id.upper() + "G"]
             self.reset_orientation = self.reset_orientation or buttons[self.controller_id.upper() + "J"]
+            self.reset_to_robot = self.reset_to_robot or buttons[self.extended_controller_id + "JS"][1] > 0.5
             self.reset_origin = self.reset_origin or toggled
 
             # Save Info #
@@ -104,7 +108,7 @@ class VRPolicy:
                 try:
                     rot_mat = np.linalg.inv(rot_mat)
                 except:
-                    print(f"exception for rot mat: {rot_mat}")
+                    print(time.time(), f"exception for rot mat: {rot_mat}")
                     rot_mat = np.eye(4)
                     self.reset_orientation = True
                 self.vr_to_global_mat = rot_mat
@@ -155,56 +159,49 @@ class VRPolicy:
         robot_gripper = state_dict["gripper_position"]
 
         if self.init:
-            print("init")
+            print(time.time(), "init")
             self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
             self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
+            self.last_target = {"pos": robot_pos, "quat": robot_quat} 
             self.init = False
 
         # Reset Origin On Release #
         if self.reset_origin:
             if self._state["movement_enabled"]:
-                print("start movement")
-                self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
+                print(time.time(), "start movement")
+                self.robot_origin = self.last_target
                 self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
             else:
-                print("stop movement")  
+                print(time.time(), "stop movement")  
             self.reset_origin = False
 
         if self._vr_state_standstill():
             if self.vr_state != None and self.vr_last_state != None:
-                print("no action detected, meta disconect/calibration?", self.vr_state["pos"], "vs", self.vr_last_state["pos"])
+                print(time.time(), "no action detected, meta disconect/calibration?", self.vr_state["pos"], "vs", self.vr_last_state["pos"])
 
         # Calculate Positional Action #
         robot_pos_offset = robot_pos - self.robot_origin["pos"]
-        target_pos_offset = self.vr_state["pos"] - self.vr_origin["pos"]
-        pos_action = target_pos_offset - robot_pos_offset
+        vr_pos_offset = self.vr_state["pos"] - self.vr_origin["pos"]
 
         # Calculate Euler Action #
         robot_quat_offset = quat_diff(robot_quat, self.robot_origin["quat"])
-        target_quat_offset = quat_diff(self.vr_state["quat"], self.vr_origin["quat"])
-        quat_action = quat_diff(target_quat_offset, robot_quat_offset)
-        euler_action = quat_to_euler(quat_action)
+        vr_quat_offset = quat_diff(self.vr_state["quat"], self.vr_origin["quat"])
+        
+        target_pos = self.robot_origin["pos"] + self.vr_state["pos"] - self.vr_origin["pos"]
+        target_quat = add_quats(self.robot_origin["quat"], quat_diff(self.vr_state["quat"], self.vr_origin["quat"]))
 
-        # Calculate Gripper Action #
-        gripper_action = (self.vr_state["gripper"] * 1.5) - robot_gripper
-
-        # Calculate Desired Pose #
-        target_pos = pos_action + robot_pos
-        target_euler = add_angles(euler_action, robot_euler)
-        target_quat = euler_to_quat(target_euler)
-        target_cartesian = np.concatenate([target_pos, target_euler])
         target_gripper = self.vr_state["gripper"]
 
-        # Scale Appropriately #
-        pos_action *= self.pos_action_gain
-        euler_action *= self.rot_action_gain
-        gripper_action *= self.gripper_action_gain
-        lin_vel, rot_vel, gripper_vel = self._limit_velocity(pos_action, euler_action, gripper_action)
+        if not self._state["movement_enabled"]:
+            target_pos = self.last_target["pos"]
+            target_quat = self.last_target["quat"]
 
-        # Prepare Return Values #
-        action = np.concatenate([lin_vel, rot_vel, [gripper_vel]])
-        # action = np.concatenate([target_pos_offset, rot_vel, [gripper_vel]])
-        action = action.clip(-1, 1)
+        if self.reset_to_robot:
+            print(time.time(), "reset target to robot")
+            self.reset_to_robot = False
+            target_pos = robot_pos
+            target_quat = robot_quat
+
 
         # info
         info_dict = {
@@ -214,24 +211,24 @@ class VRPolicy:
             "vr_raw_quat": self.vr_state["quat"],
             "vr_origin_pos": self.vr_origin["pos"],
             "vr_origin_quat": self.vr_origin["quat"],
-            "vr_target_pos": target_pos_offset,
-            "vr_target_quat": target_quat_offset,
+            "vr_pos": vr_pos_offset,
+            "vr_quat": vr_quat_offset,
 
             "robot_raw_pos": robot_pos,
             "robot_raw_quat": robot_quat,
             "robot_origin_pos": self.robot_origin["pos"],
             "robot_origin_quat": self.robot_origin["quat"],
-            "robot_target_pos": target_pos,
-            "robot_target_quat": target_quat,
+            "robot_pos": robot_pos_offset,
+            "robot_quat": robot_quat_offset,
 
-            "robot_action_pos": pos_action,
-            "robot_action_quat": quat_action,            
+            "robot_target_pos": target_pos,
+            "robot_target_quat": target_quat,     
             }
 
-        # print("gripper pos", robot_gripper, "target", target_gripper, "action", gripper_action)
+        self.last_target = {"pos": target_pos, "quat": target_quat} 
 
         # Return #
-        return action, info_dict
+        return np.concatenate([target_pos, target_quat]), target_gripper, info_dict
         
 
     def get_info(self):
@@ -244,7 +241,7 @@ class VRPolicy:
 
     def forward(self, obs_dict):
         if self._state["poses"] == {}:
-            return np.zeros(7), {}
+            return np.zeros(6), np.zeros(1), {}
         return self._calculate_action(obs_dict)
 
     def close(self):

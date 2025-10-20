@@ -18,6 +18,7 @@ class SafetyNode : public rclcpp::Node
 {
 public:
   SafetyNode();
+  void init();
 
 private:
   void targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);

@@ -33,13 +33,13 @@ public:
     line_length_ = get_parameter("line_length").as_int();
     min_distance_ = get_parameter("min_distance").as_double();
 
-    publisher_arrow_ = create_publisher<visualization_msgs::msg::Marker>("/vis_arrow", 10);
-    publisher_line_ = create_publisher<visualization_msgs::msg::MarkerArray>("/vis_line", 10);
+    publisher_arrow_ = create_publisher<visualization_msgs::msg::Marker>("vis_arrow", 10);
+    publisher_line_ = create_publisher<visualization_msgs::msg::MarkerArray>("vis_line", 10);
 
     std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<float> dist(0.2f, 1.0f);
 
-    sub_1 = create_subscription<geometry_msgs::msg::PoseStamped>("/franka_right/target_cartesian_pose", 10, std::bind(&PoseLineNode::r_tcp_callback, this, _1));
+    sub_1 = create_subscription<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 10, std::bind(&PoseLineNode::r_tcp_callback, this, _1));
 
   }
 
@@ -47,12 +47,8 @@ private:
 
   void r_tcp_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
-
-    RCLCPP_INFO(this->get_logger(), "tcp cb %.2f %.2f %.2f", msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
-
     std_msgs::msg::ColorRGBA color;
-    color.r = 1;
-    
+    color.r = 1; 
     update(0, "r_tcp", r_tcp_line, msg->pose, color, msg->header);
   }
 
@@ -60,16 +56,15 @@ private:
   {
 
     // array
-
     visualization_msgs::msg::Marker arrow;
     arrow.header = header;
     arrow.ns = ns;
     arrow.id = id;
     arrow.type = visualization_msgs::msg::Marker::ARROW;
     arrow.action = visualization_msgs::msg::Marker::ADD;
-    arrow.scale.x = 0.1;  
-    arrow.scale.y = 0.05;  
-    arrow.scale.z = 0.1;  
+    arrow.scale.x = 0.05;  
+    arrow.scale.y = 0.02;  
+    arrow.scale.z = 0.05;  
     arrow.color = color;
     arrow.color.a = 1;
     arrow.pose = pose;
