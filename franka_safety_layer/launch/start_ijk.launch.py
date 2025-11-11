@@ -39,9 +39,9 @@ def generate_robot_nodes(context):
 
             nodes.append(
                 Node(
-                    package="franka_control_module",
-                    executable="franka_cartesian_module",
-                    name="franka_cartesian_module",
+                    package="franka_safety_layer",
+                    executable="safety_node",
+                    name="safety_node",
                     namespace=config['namespace'],
                     parameters=[{
                         'arm_id': str(config['arm_id']),

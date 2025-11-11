@@ -38,7 +38,7 @@ public:
             "franka_joint_trajectory_controller/joint_trajectory", 1);
 
         joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "joint_state", 1, std::bind(&FrankaControlModule::jointStateCallback, this, std::placeholders::_1));
+            "joint_states", 1, std::bind(&FrankaControlModule::jointStateCallback, this, std::placeholders::_1));
         
 
         timer_ = this->create_wall_timer(20ms, std::bind(&FrankaControlModule::publish_trajectory, this));

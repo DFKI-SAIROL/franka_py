@@ -48,48 +48,7 @@ def generate_robot_nodes(context):
     
     for item_name, config in configs.items():
         if item_name in spawn_robots: 
-            print("Spawn", item_name)
-
-            franka_xacro_file = os.path.join(
-                get_package_share_directory('franka_description'),
-                'robots', 'fr3', 'fr3.urdf.xacro'
-            )
-
-            robot_description_command = Command(
-                [
-                    FindExecutable(name='xacro'),
-                    ' ',
-                    franka_xacro_file,
-                    ' ros2_control:=false',
-                    ' hand:=',
-                    str(config['load_gripper']),
-                    ' arm_id:=fr3',
-                    ' robot_ip:=',
-                    str(config['robot_ip']),
-                    ' use_fake_hardware:=',
-                    str(config['use_fake_hardware']),
-                    ' fake_sensor_commands:=',
-                    str(config['fake_sensor_commands']),
-                ]
-            )
-
-            robot_description = {'robot_description': ParameterValue(
-                robot_description_command, value_type=str)}
-
-            franka_semantic_xacro_file = os.path.join(
-                get_package_share_directory('franka_description'),
-                'robots', 'fr3', 'fr3.srdf.xacro'
-            )
-
-            robot_description_semantic_command = Command(
-                [FindExecutable(name='xacro'), ' ',
-                franka_semantic_xacro_file, ' hand:=', str(config['load_gripper'])]
-            )
-
-            # Use ParameterValue here as well if needed
-            robot_description_semantic = {'robot_description_semantic': ParameterValue(
-                robot_description_semantic_command, value_type=str)}
-
+            print("Spawn safetly layer for", item_name)
 
             nodes.append(
                 Node(
@@ -98,11 +57,7 @@ def generate_robot_nodes(context):
                     name='safety_node',
                     namespace=config['namespace'],
                     output='screen',
-                    parameters=[
-                        {'move_group': 'fr3'},
-                        robot_description,
-                        robot_description_semantic
-                    ]
+                    parameters=[]
                 )
             )
             nodes.append(

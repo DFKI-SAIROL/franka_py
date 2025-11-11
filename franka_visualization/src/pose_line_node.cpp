@@ -7,6 +7,11 @@
 #include <std_msgs/msg/color_rgba.hpp>
 #include <std_msgs/msg/header.hpp>
 
+// --- TF2 Includes ---
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> // Required for transforming geometry_msgs::msg::PoseStamped
+
 #include <unordered_map>
 #include <deque>
 #include <cmath>
@@ -25,7 +30,10 @@ struct PoseLine {
 
 class PoseLineNode : public rclcpp::Node {
 public:
-  PoseLineNode() : Node("pose_line_node") 
+  PoseLineNode() : Node("pose_line_node"),
+                   // Initialize TF2 components
+                   tf_buffer_(this->get_clock()),
+                   tf_listener_(tf_buffer_)
   {
     declare_parameter<int>("line_length", 500);
     declare_parameter<double>("min_distance", 0.001);
@@ -36,11 +44,16 @@ public:
     publisher_arrow_ = create_publisher<visualization_msgs::msg::Marker>("vis_arrow", 10);
     publisher_line_ = create_publisher<visualization_msgs::msg::MarkerArray>("vis_line", 10);
 
-    std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<float> dist(0.2f, 1.0f);
-
+    // Setup for the first subscription (original)
     sub_1 = create_subscription<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 10, std::bind(&PoseLineNode::r_tcp_callback, this, _1));
 
+    source_frame_ = "franka_right_fr3_link0";
+    target_frame_ = "franka_right_fr3_link8";
+
+    // Setup timer for TF lookup (new)
+    timer_ = create_wall_timer(std::chrono::milliseconds(50), std::bind(&PoseLineNode::tf_callback, this));
+
+    RCLCPP_INFO(this->get_logger(), "PoseLineNode started.");
   }
 
 private:
@@ -49,13 +62,51 @@ private:
   {
     std_msgs::msg::ColorRGBA color;
     color.r = 1; 
+    // ID 0, Namespace "r_tcp" (original)
     update(0, "r_tcp", r_tcp_line, msg->pose, color, msg->header);
+  }
+
+  void tf_callback()
+  {
+    geometry_msgs::msg::TransformStamped transformStamped;
+    
+    // Attempt to lookup the transform
+    try {
+      // Get the transform from source_frame_ to target_frame_ at the latest time
+      transformStamped = tf_buffer_.lookupTransform(
+        source_frame_, target_frame_,
+        tf2::TimePointZero // Use TimePointZero for the latest available transform
+      );
+    } catch (const tf2::TransformException & ex) {
+      // Log error but continue
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        1000, // Throttle to 1 second
+        "Could not transform %s to %s: %s",
+        target_frame_.c_str(), source_frame_.c_str(), ex.what());
+      return;
+    }
+
+    // Convert the TransformStamped into a Pose
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = transformStamped.transform.translation.x;
+    pose.position.y = transformStamped.transform.translation.y;
+    pose.position.z = transformStamped.transform.translation.z;
+    pose.orientation = transformStamped.transform.rotation;
+    
+    // Define color for the TF visualization (e.g., green)
+    std_msgs::msg::ColorRGBA color;
+    color.g = 1; 
+    
+    // ID 1, Namespace "tf_pose" (new)
+    // The source_frame_ acts as the frame_id here, which is the required convention for visualization markers.
+    update(1, "g_acp", tf_pose_line, pose, color, transformStamped.header);
   }
 
   void update(int id, std::string ns, PoseLine &line, geometry_msgs::msg::Pose &pose, std_msgs::msg::ColorRGBA &color, std_msgs::msg::Header &header) 
   {
-
-    // array
+    // --- Arrow Visualization ---
     visualization_msgs::msg::Marker arrow;
     arrow.header = header;
     arrow.ns = ns;
@@ -71,12 +122,13 @@ private:
    
     publisher_arrow_->publish(arrow);
 
-    // line 
+    // --- Line Strip Visualization ---
     auto pt = pose.position;
     if (!line.has_last) {
       line.points.push_back(pt);
       line.last = pt;
       line.has_last = true;
+      // Don't publish line strip until we have more than one point
       return;
     }
 
@@ -114,15 +166,22 @@ private:
   // Parameters
   int line_length_;
   double min_distance_;
+  std::string target_frame_;
+  std::string source_frame_;
 
   // State
-  PoseLine r_tcp_line;
+  PoseLine r_tcp_line; // For the subscribed pose
+  PoseLine tf_pose_line; // For the TF pose (new)
 
   // Ros
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_1;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr publisher_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr publisher_line_;
   rclcpp::TimerBase::SharedPtr timer_;
+
+  // TF2 Members (new)
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
 };
 
 int main(int argc, char **argv) {

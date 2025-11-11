@@ -7,6 +7,7 @@ Panels:
         - /Global Options1
         - /Status1
         - /Left RobotModel1/Description Topic1
+        - /Axes1
         - /TF1
       Splitter Ratio: 0.5
     Tree Height: 1076
@@ -62,54 +63,6 @@ Visualization Manager:
         Expand Link Details: false
         Expand Tree: false
         Link Tree Style: Links in Alphabetic Order
-        base:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        franka_left_fr3_link0:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link1:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link2:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link3:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link4:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link5:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link6:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link7:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_left_fr3_link8:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
       Mass Properties:
         Inertia: false
         Mass: false
@@ -129,69 +82,28 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /franka_right/robot_description
-      Enabled: true
+      Enabled: false
       Links:
         All Links Enabled: true
         Expand Joint Details: false
         Expand Link Details: false
         Expand Tree: false
         Link Tree Style: Links in Alphabetic Order
-        base:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        franka_right_fr3_link0:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link1:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link2:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link3:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link4:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link5:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link6:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link7:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        franka_right_fr3_link8:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
       Mass Properties:
         Inertia: false
         Mass: false
       Name: Right RobotModel
       TF Prefix: ""
       Update Interval: 0
-      Value: true
+      Value: false
       Visual Enabled: true
+    - Class: rviz_default_plugins/Axes
+      Enabled: true
+      Length: 0.20000000298023224
+      Name: Axes
+      Radius: 0.019999999552965164
+      Reference Frame: franka_right_fr3_link0
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
       Filter (blacklist): ""
@@ -201,24 +113,6 @@ Visualization Manager:
         All Enabled: true
         base:
           Value: true
-        franka_left_fr3_link0:
-          Value: true
-        franka_left_fr3_link1:
-          Value: true
-        franka_left_fr3_link2:
-          Value: true
-        franka_left_fr3_link3:
-          Value: true
-        franka_left_fr3_link4:
-          Value: true
-        franka_left_fr3_link5:
-          Value: true
-        franka_left_fr3_link6:
-          Value: true
-        franka_left_fr3_link7:
-          Value: true
-        franka_left_fr3_link8:
-          Value: true
         franka_right_fr3_link0:
           Value: true
         franka_right_fr3_link1:
@@ -237,23 +131,13 @@ Visualization Manager:
           Value: true
         franka_right_fr3_link8:
           Value: true
-      Marker Scale: 1
+      Marker Scale: 0.5
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: false
       Tree:
         base:
-          franka_left_fr3_link0:
-            franka_left_fr3_link1:
-              franka_left_fr3_link2:
-                franka_left_fr3_link3:
-                  franka_left_fr3_link4:
-                    franka_left_fr3_link5:
-                      franka_left_fr3_link6:
-                        franka_left_fr3_link7:
-                          franka_left_fr3_link8:
-                            {}
           franka_right_fr3_link0:
             franka_right_fr3_link1:
               franka_right_fr3_link2:
@@ -265,6 +149,33 @@ Visualization Manager:
                           franka_right_fr3_link8:
                             {}
       Update Interval: 0
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        g_acp: true
+        r_tcp: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /franka_right/vis_line
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        g_acp: true
+        r_tcp: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /franka_right/vis_arrow
       Value: true
   Enabled: true
   Global Options:
@@ -312,25 +223,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 3.4338953495025635
+      Distance: 1.6451663970947266
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.005491261370480061
-        Y: -0.07745686918497086
-        Z: 0.32312366366386414
+        X: 0.4591825604438782
+        Y: -0.6056219339370728
+        Z: 0.47102198004722595
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8503978848457336
+      Pitch: 0.05479746311903
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.094071626663208
+      Yaw: 1.0054383277893066
     Saved: ~
 Window Geometry:
   Displays:

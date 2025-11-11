@@ -131,15 +131,40 @@ private:
         RCLCPP_INFO_ONCE(this->get_logger(), "Start publish cartesian target poses.");
         double elapsed = (this->get_clock()->now() - start_time_).seconds();
 
-        double amplitude_x = 0.05;
-        double amplitude_z = 0.03;
-        double frequency = 0.5;
+        // --- Parameters (Add new ones for rotation) ---
+        double offset_x = -0.2;
+        double offset_z = -0.3;
+        double amplitude_x = 0.15;
+        double amplitude_z = 0.13;
+        double frequency_pos = 0.05; // Renamed for clarity: Position frequency
+
+        // New parameters for rotation
+        double amplitude_yaw = M_PI / 4.0; // 45 degrees maximum rotation around Z-axis
+        double frequency_yaw = 0.02;       // Slower frequency for rotation
 
         geometry_msgs::msg::PoseStamped pose = init_pose_;
         pose.header.stamp = this->get_clock()->now();
 
-        pose.pose.position.x += amplitude_x * std::sin(2.0 * M_PI * frequency * elapsed);
-        pose.pose.position.z += amplitude_z * std::cos(2.0 * M_PI * frequency * elapsed);
+        // --- 1. Compute Position (X and Z) ---
+        pose.pose.position.x = init_pose_.pose.position.x + offset_x + amplitude_x * std::sin(2.0 * M_PI * frequency_pos * elapsed);
+        pose.pose.position.z = init_pose_.pose.position.z + offset_z + amplitude_z * std::cos(2.0 * M_PI * frequency_pos * elapsed);
+
+        // --- 2. Compute Euler Angle (Yaw) ---
+        // We'll use a sine wave to compute a rotation (e.g., around the Z-axis/Yaw)
+        double yaw_angle = amplitude_yaw * std::sin(2.0 * M_PI * frequency_yaw * elapsed);
+        double roll_angle = 0.0;
+        double pitch_angle = M_PI;
+
+        // --- 3. Convert Euler Angles to Quaternion ---
+        tf2::Quaternion q;
+        // The order is Roll, Pitch, Yaw
+        q.setRPY(roll_angle, pitch_angle, yaw_angle);
+
+        // --- 4. Assign Quaternion to Pose Message ---
+        pose.pose.orientation.x = q.x();
+        pose.pose.orientation.y = q.y();
+        pose.pose.orientation.z = q.z();
+        pose.pose.orientation.w = q.w();
 
         cartesian_pose_pub_->publish(pose);
     }

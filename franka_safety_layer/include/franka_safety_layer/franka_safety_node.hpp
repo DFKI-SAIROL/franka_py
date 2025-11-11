@@ -11,6 +11,8 @@
 #include <moveit/robot_model_loader/robot_model_loader.hpp>
 #include <moveit/robot_state/robot_state.hpp>
 
+#include <moveit_msgs/srv/get_motion_plan.hpp>
+
 namespace franka_safety_layer
 {
 
@@ -18,18 +20,16 @@ class SafetyNode : public rclcpp::Node
 {
 public:
   SafetyNode();
-  void init();
 
 private:
   void targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
-  bool planSafeTrajectory(
-    const geometry_msgs::msg::PoseStamped &target_pose,
-    trajectory_msgs::msg::JointTrajectory &trajectory);
+  bool planSafeTrajectory(const geometry_msgs::msg::PoseStamped &target_pose, trajectory_msgs::msg::JointTrajectory &trajectory);
   bool isTrajectoryCollisionFree(const trajectory_msgs::msg::JointTrajectory &trajectory);
 
   // ROS
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_sub_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_traj_pub_;
+  rclcpp::Client<moveit_msgs::srv::GetMotionPlan>::SharedPtr plan_client_;
 
   // MoveIt
   std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;

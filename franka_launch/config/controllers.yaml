@@ -224,7 +224,7 @@
         - fr3_joint7
 
       command_interfaces:
-        - effort
+        - position
 
       state_interfaces:
         - position

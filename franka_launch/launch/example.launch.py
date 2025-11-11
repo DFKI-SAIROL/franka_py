@@ -175,7 +175,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'spawn_franka_left',
-            default_value='true',
+            default_value='false',
             description='Spawn franka left',
         ),
         DeclareLaunchArgument(
@@ -190,7 +190,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'controller_name',
-            description='Name of the controller to spawn (required, no default)',
+            default_value='franka_joint_trajectory_controller',
+            description='Name of the controller to spawn',
         ),
         OpaqueFunction(function=generate_robot_nodes),
     ])

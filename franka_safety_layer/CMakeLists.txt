@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -18,46 +19,35 @@ find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_ros_planning REQUIRED)
 find_package(moveit_ros_move_group REQUIRED)
 find_package(moveit_core REQUIRED)
+find_package(pinocchio REQUIRED)
 
 include_directories(
   include
 )
 
 
-add_executable(safety_node src/franka_safety_node.cpp)
+add_executable(safety_node src/franka_ijk.cpp)
 
 ament_target_dependencies(safety_node
   rclcpp
   geometry_msgs
   std_msgs
+  sensor_msgs
   trajectory_msgs
-  moveit_core
-  moveit_ros_planning
-  moveit_ros_planning_interface
-  moveit_ros_move_group
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  #moveit_core
+  #moveit_ros_planning
+  #moveit_ros_planning_interface
+  #moveit_ros_move_group
+  pinocchio
 )
 
 install(TARGETS safety_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-
-add_executable(node src/node.cpp)
-
-ament_target_dependencies(node
-  rclcpp
-  geometry_msgs
-  std_msgs
-  trajectory_msgs
-  moveit_core
-  moveit_ros_planning
-  moveit_ros_planning_interface
-  moveit_ros_move_group
-)
-
-install(TARGETS node
-  DESTINATION lib/${PROJECT_NAME}
-)
 
 
 install(DIRECTORY launch/
