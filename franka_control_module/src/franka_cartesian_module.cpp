@@ -49,7 +49,7 @@ public:
         cartesian_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 10);
 
         // Timer for publishing Cartesian motion
-        timer_ = this->create_wall_timer(50ms, std::bind(&FrankaCartesianModule::publish_cartesian_motion, this));
+        timer_ = this->create_wall_timer(std::chrono::duration<double>(1.0 / 15), std::bind(&FrankaCartesianModule::publish_cartesian_motion, this));
 
         RCLCPP_INFO(this->get_logger(), "Franka Cartesian module started");
     }
@@ -132,27 +132,31 @@ private:
         double elapsed = (this->get_clock()->now() - start_time_).seconds();
 
         // --- Parameters (Add new ones for rotation) ---
-        double offset_x = -0.2;
+        double offset_x = 0;
         double offset_z = -0.3;
         double amplitude_x = 0.15;
         double amplitude_z = 0.13;
         double frequency_pos = 0.05; // Renamed for clarity: Position frequency
 
+        double amplitude_y = 0.2;
+        double frequency_y = 0.03; // Renamed for clarity: Position frequency
+
         // New parameters for rotation
         double amplitude_yaw = M_PI / 4.0; // 45 degrees maximum rotation around Z-axis
-        double frequency_yaw = 0.02;       // Slower frequency for rotation
+        double amplitude_roll = M_PI / 10.0; // 18 degrees maximum rotation around Z-axis
+        double frequency_angle = 0.02;       // Slower frequency for rotation
 
         geometry_msgs::msg::PoseStamped pose = init_pose_;
         pose.header.stamp = this->get_clock()->now();
 
         // --- 1. Compute Position (X and Z) ---
         pose.pose.position.x = init_pose_.pose.position.x + offset_x + amplitude_x * std::sin(2.0 * M_PI * frequency_pos * elapsed);
+        pose.pose.position.y = init_pose_.pose.position.y + amplitude_y * std::cos(2.0 * M_PI * frequency_y * elapsed);
         pose.pose.position.z = init_pose_.pose.position.z + offset_z + amplitude_z * std::cos(2.0 * M_PI * frequency_pos * elapsed);
 
         // --- 2. Compute Euler Angle (Yaw) ---
-        // We'll use a sine wave to compute a rotation (e.g., around the Z-axis/Yaw)
-        double yaw_angle = amplitude_yaw * std::sin(2.0 * M_PI * frequency_yaw * elapsed);
-        double roll_angle = 0.0;
+        double yaw_angle = amplitude_yaw * std::sin(2.0 * M_PI * frequency_angle * elapsed);
+        double roll_angle = amplitude_roll * std::sin(2.0 * M_PI * frequency_angle * elapsed);
         double pitch_angle = M_PI;
 
         // --- 3. Convert Euler Angles to Quaternion ---

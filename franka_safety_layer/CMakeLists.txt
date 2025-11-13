@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(franka_custom_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -37,6 +38,7 @@ ament_target_dependencies(safety_node
   tf2
   tf2_ros
   tf2_geometry_msgs
+  franka_custom_msgs
   #moveit_core
   #moveit_ros_planning
   #moveit_ros_planning_interface

@@ -8,7 +8,10 @@
 
 // ROS 2 Includes
 #include "rclcpp/rclcpp.hpp"
+#include "franka_custom_msgs/msg/fijk_debug.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/pose.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "tf2_ros/transform_listener.h"
@@ -35,23 +38,28 @@ public:
 
 private:
 
-  bool loadModel();
+  bool loadPinocchioModel();
   void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
   void targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
-  bool getCurrentPose(pinocchio::SE3& current_se3);
+
+  bool tfLookup(std::string frame_from, std::string frame_to, pinocchio::SE3 &result);
+
+geometry_msgs::msg::Pose convert(pinocchio::SE3 se3);
+geometry_msgs::msg::Twist convert(Eigen::VectorXd v);
+
   pinocchio::SE3 computeForwardKinematic(Eigen::VectorXd q);
-  void controlLoop(); // Main orchestrator method
-  Eigen::VectorXd computeCartesianVelocity(const pinocchio::SE3& current_se3, const pinocchio::SE3& target_se3);
-  Eigen::VectorXd runIKControl(const Eigen::VectorXd& desired_cartesian_velocity);
-  Eigen::VectorXd computeIKResult(const Eigen::VectorXd& desired_cartesian_velocity);
+  double computeCartesianVelocity(const pinocchio::SE3& current_se3, const pinocchio::SE3& target_se3, Eigen::VectorXd &desired_cartesian_velocity);
   Eigen::VectorXd runJacobianNullspaceControl(const Eigen::VectorXd& desired_cartesian_velocity);
-  Eigen::VectorXd computeNullspaceDq(const Eigen::MatrixXd& J_dagger);
-  void publishCommand(const Eigen::VectorXd& dq);
+  void controlLoop();
+
+  void publishCommand(double target_reachable_factor, const Eigen::VectorXd& dq);
+  void publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq);
 
   // ROS 2 components
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_velocity_pub_; 
+  rclcpp::Publisher<franka_custom_msgs::msg::FIJKDebug>::SharedPtr debug_pub_; 
   rclcpp::TimerBase::SharedPtr timer_;
 
   // TF components
@@ -77,11 +85,11 @@ private:
   double cartesian_velocity_limit_ = 0.5; // Max joint velocity in m/s
 
   // Control gains
-  const double K_PL = 1.0;     // Proportional gain for Cartesian linear velocity control
-  const double K_PA = 1.0;     // Proportional gain for Cartesian angular velocity control
-  const double K_Q = 1.0;    // Proportional gain for joint position control (IK approach)
-  const double K_NULL = 0.1;  // Gain for nullspace posture task (Secondary Task)
-  const double TIME_STEP = 0.02; // Control loop frequency (50 Hz)
-  const double FINAL_TIME_STEP = 0.1; // Control loop frequency (50 Hz)
+  const double K_NULL = 1.0;  // Gain for nullspace posture task (Secondary Task)
+
+  const double frequency = 15;
+  const double TIME_STEP = 1.0 / frequency; // Control loop frequency (50 Hz)
+  const double MOTION_TIME_STEP = 0.8 * TIME_STEP; 
+  const double FINAL_TIME_STEP = 3 * TIME_STEP; // Control loop frequency (50 Hz)
 
 };
