@@ -10,6 +10,8 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   joint_velocity_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("franka_joint_trajectory_controller/joint_trajectory", 1);
   debug_pub_ = this->create_publisher<franka_custom_msgs::msg::FIJKDebug>("fijk_debug", 1);
 
+  marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("safety_vis", 10); // 10 important as multiple things are published fast
+
   // TF Setup (for current pose access)
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
@@ -41,8 +43,14 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
     return;
   }
 
+  auto init_cartesian = computeForwardKinematic(q_init_).translation();
+  safety_layer_.init(init_cartesian, marker_pub_);
+
   // 5. Setup Control Timer
   timer_ = this->create_wall_timer(std::chrono::duration<double>(TIME_STEP), std::bind(&Franka_IJK::controlLoop, this));
+
+  timer_vis_ = this->create_wall_timer(std::chrono::seconds(1),std::bind(&WorkspaceVisualizer::publish_markers, this->safety_layer_.vis_));
+
 
   RCLCPP_INFO(this->get_logger(), "franka_ijk initialized.");
 }
@@ -106,11 +114,25 @@ void Franka_IJK::jointStateCallback(const sensor_msgs::msg::JointState::SharedPt
 
 void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
 {
-  RCLCPP_INFO_ONCE(this->get_logger(), "Got target state");
-  target_pose_stamped_ = *msg;
-  target_se3_.translation() << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
-  Eigen::Quaterniond q_rot(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z);
+  try {
+    tf_buffer_->transform(*msg, target_pose_stamped_, target_frame_);
+  } 
+  catch (tf2::TransformException & ex) 
+  {
+    RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Could not transform target pose from '%s' to '%s': %s",
+                  msg->header.frame_id.c_str(), target_frame_.c_str(), ex.what());
+    return; 
+  }
+
+  target_se3_.translation() << target_pose_stamped_.pose.position.x, target_pose_stamped_.pose.position.y, target_pose_stamped_.pose.position.z;
+
+  Eigen::Quaterniond q_rot( target_pose_stamped_.pose.orientation.w, 
+                            target_pose_stamped_.pose.orientation.x, 
+                            target_pose_stamped_.pose.orientation.y, 
+                            target_pose_stamped_.pose.orientation.z);
   target_se3_.rotation() = q_rot.toRotationMatrix();
+
+  RCLCPP_INFO_ONCE(this->get_logger(), "Got and transformed target state");
 }
 
 
@@ -218,6 +240,14 @@ double Franka_IJK::computeCartesianVelocity(
     desired_cartesian_velocity *= reduction;
   }
 
+  double max_safe_v = safety_layer_.getMaxSafeVelocity(current_se3.translation());
+  if (desired_cartesian_velocity.norm() > max_safe_v)
+  {
+    double reduction = max_safe_v / desired_cartesian_velocity.norm();
+    target_reachable_factor = 1;
+    desired_cartesian_velocity *= reduction;
+  } 
+
   // Apply tolerance to stop movement near target
   if (desired_cartesian_velocity.norm() < 1e-3) {
     desired_cartesian_velocity.setZero();
@@ -285,9 +315,11 @@ void Franka_IJK::controlLoop()
 
   pinocchio::SE3 current_se3 = computeForwardKinematic(q_);
 
+  pinocchio::SE3 safe_target_se3 = safety_layer_.adjustToSafePose(current_se3, target_se3_);
+
   // --- 2. Compute Primary Task (Cartesian Error and Velocity) ---
   Eigen::VectorXd desired_cartesian_velocity;
-  double target_reachable_factor = computeCartesianVelocity(current_se3, target_se3_, desired_cartesian_velocity);
+  double target_reachable_factor = computeCartesianVelocity(current_se3, safe_target_se3, desired_cartesian_velocity);
   
   Eigen::VectorXd dq;
   if (use_ik) {
@@ -312,7 +344,7 @@ void Franka_IJK::controlLoop()
   // --- 5. Publish Command ---
   publishCommand(target_reachable_factor, dq);
 
-  publishDebugInfos(current_se3, target_se3_, desired_cartesian_velocity, dq);
+  publishDebugInfos(current_se3, target_se3_, safe_target_se3, desired_cartesian_velocity, dq);
 
 }
 
@@ -382,13 +414,16 @@ void Franka_IJK::publishCommand(double target_reachable_factor, const Eigen::Vec
 }
 
 
-void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq)
+void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, pinocchio::SE3 &safe_target_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq)
 {
   franka_custom_msgs::msg::FIJKDebug debug_msg;
   debug_msg.header.stamp = this->get_clock()->now();
+  debug_msg.header.frame_id = target_frame_;
+  
 
   debug_msg.actual_pose = convert(current_se3);
   debug_msg.target_pose = convert(target_se3);
+  debug_msg.safe_target_pose = convert(safe_target_se3);
   debug_msg.cmd_pose = convert(computeForwardKinematic(q_ + dq * MOTION_TIME_STEP));
   debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_ + dq * FINAL_TIME_STEP));
   debug_msg.cartesian_velocity = convert(desired_cartesian_velocity);

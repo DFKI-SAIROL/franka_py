@@ -28,6 +28,8 @@
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/multibody/model.hpp>
 
+#include "safety_layer.hpp"
+
 using namespace std::chrono_literals;
 
 class Franka_IJK : public rclcpp::Node
@@ -53,18 +55,22 @@ geometry_msgs::msg::Twist convert(Eigen::VectorXd v);
   void controlLoop();
 
   void publishCommand(double target_reachable_factor, const Eigen::VectorXd& dq);
-  void publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq);
+  void publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, pinocchio::SE3 &safe_target_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq);
 
   // ROS 2 components
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_velocity_pub_; 
   rclcpp::Publisher<franka_custom_msgs::msg::FIJKDebug>::SharedPtr debug_pub_; 
-  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+  rclcpp::TimerBase::SharedPtr timer_, timer_vis_;
 
   // TF components
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
+
+  // sub classes
+  SafetyLayer safety_layer_;
 
   std::string arm_prefix_;
 
@@ -74,6 +80,7 @@ geometry_msgs::msg::Twist convert(Eigen::VectorXd v);
   pinocchio::FrameIndex ee_frame_id_;
 
   // State variables
+  std::string target_frame_ = "base";
   geometry_msgs::msg::PoseStamped target_pose_stamped_;
   pinocchio::SE3 target_se3_; // Target pose (Pinocchio format)
 

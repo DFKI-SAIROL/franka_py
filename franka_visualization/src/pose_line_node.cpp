@@ -6,6 +6,7 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <std_msgs/msg/color_rgba.hpp>
 #include <std_msgs/msg/header.hpp>
+#include <franka_custom_msgs/msg/fijk_debug.hpp>
 
 // --- TF2 Includes ---
 #include <tf2_ros/transform_listener.h>
@@ -45,7 +46,8 @@ public:
     publisher_line_ = create_publisher<visualization_msgs::msg::MarkerArray>("vis_line", 10);
 
     // Setup for the first subscription (original)
-    sub_1 = create_subscription<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 10, std::bind(&PoseLineNode::r_tcp_callback, this, _1));
+    sub_1 = create_subscription<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 10, std::bind(&PoseLineNode::tcp_callback, this, _1));
+    sub_2 = create_subscription<franka_custom_msgs::msg::FIJKDebug>("fijk_debug", 10, std::bind(&PoseLineNode::fijk_debug_callback, this, _1));
 
     source_frame_ = "franka_right_fr3_link0";
     target_frame_ = "franka_right_fr3_link8";
@@ -58,12 +60,27 @@ public:
 
 private:
 
-  void r_tcp_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  void tcp_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
     std_msgs::msg::ColorRGBA color;
     color.r = 1; 
     // ID 0, Namespace "r_tcp" (original)
     update(0, "r_tcp", r_tcp_line, msg->pose, color, msg->header);
+  }
+
+  void fijk_debug_callback(const franka_custom_msgs::msg::FIJKDebug::SharedPtr msg)
+  {
+    {
+      std_msgs::msg::ColorRGBA color;
+      color.b = 1; 
+      update(2, "b_stcp", b_stcp_line, msg->safe_target_pose, color, msg->header);
+    }
+    {
+      std_msgs::msg::ColorRGBA color;
+      color.b = 1; 
+      color.g = 1; 
+      update(3, "o_stcp", o_cmd_line, msg->cmd_pose, color, msg->header);
+    }
   }
 
   void tf_callback()
@@ -100,7 +117,6 @@ private:
     color.g = 1; 
     
     // ID 1, Namespace "tf_pose" (new)
-    // The source_frame_ acts as the frame_id here, which is the required convention for visualization markers.
     update(1, "g_acp", tf_pose_line, pose, color, transformStamped.header);
   }
 
@@ -153,7 +169,7 @@ private:
     marker.id = id;
     marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
     marker.action = visualization_msgs::msg::Marker::ADD;
-    marker.scale.x = 0.01;  // thickness
+    marker.scale.x = 0.005;  // thickness
     marker.color = color;
     marker.color.a = 0.5;
 
@@ -170,11 +186,11 @@ private:
   std::string source_frame_;
 
   // State
-  PoseLine r_tcp_line; // For the subscribed pose
-  PoseLine tf_pose_line; // For the TF pose (new)
+  PoseLine r_tcp_line, tf_pose_line, o_cmd_line, b_stcp_line;
 
   // Ros
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_1;
+  rclcpp::Subscription<franka_custom_msgs::msg::FIJKDebug>::SharedPtr sub_2;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr publisher_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr publisher_line_;
   rclcpp::TimerBase::SharedPtr timer_;

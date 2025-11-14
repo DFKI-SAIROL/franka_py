@@ -21,13 +21,15 @@ find_package(moveit_ros_planning REQUIRED)
 find_package(moveit_ros_move_group REQUIRED)
 find_package(moveit_core REQUIRED)
 find_package(pinocchio REQUIRED)
+find_package(visualization_msgs REQUIRED)
+
 
 include_directories(
   include
 )
 
 
-add_executable(safety_node src/franka_ijk.cpp)
+add_executable(safety_node src/franka_ijk.cpp src/safety_layer.cpp src/vis.cpp)
 
 ament_target_dependencies(safety_node
   rclcpp
@@ -38,6 +40,7 @@ ament_target_dependencies(safety_node
   tf2
   tf2_ros
   tf2_geometry_msgs
+  visualization_msgs
   franka_custom_msgs
   #moveit_core
   #moveit_ros_planning

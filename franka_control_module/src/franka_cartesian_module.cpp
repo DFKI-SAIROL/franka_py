@@ -132,12 +132,13 @@ private:
         double elapsed = (this->get_clock()->now() - start_time_).seconds();
 
         // --- Parameters (Add new ones for rotation) ---
-        double offset_x = 0;
+        double offset_x = 0.0;
         double offset_z = -0.3;
-        double amplitude_x = 0.15;
+        double amplitude_x = 0.1;
         double amplitude_z = 0.13;
         double frequency_pos = 0.05; // Renamed for clarity: Position frequency
 
+        double offset_y = -0.1;
         double amplitude_y = 0.2;
         double frequency_y = 0.03; // Renamed for clarity: Position frequency
 
@@ -151,7 +152,7 @@ private:
 
         // --- 1. Compute Position (X and Z) ---
         pose.pose.position.x = init_pose_.pose.position.x + offset_x + amplitude_x * std::sin(2.0 * M_PI * frequency_pos * elapsed);
-        pose.pose.position.y = init_pose_.pose.position.y + amplitude_y * std::cos(2.0 * M_PI * frequency_y * elapsed);
+        pose.pose.position.y = init_pose_.pose.position.y + offset_y + amplitude_y * std::cos(2.0 * M_PI * frequency_y * elapsed);
         pose.pose.position.z = init_pose_.pose.position.z + offset_z + amplitude_z * std::cos(2.0 * M_PI * frequency_pos * elapsed);
 
         // --- 2. Compute Euler Angle (Yaw) ---
