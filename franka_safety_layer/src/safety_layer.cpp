@@ -201,23 +201,78 @@ Eigen::Vector3d SafetyLayer::calculatePushOff(const Eigen::Vector3d& current_pos
         // 3. Determine if the current position is inside the INFLATED OBB
         if (distance_to_obb_surface < safety_distance_)
         {
-            double required_magnitude = safety_distance_ - distance_to_obb_surface;
-            
-            // Push-off direction is AWAY from the OBB surface along the shortest path
-            Eigen::Vector3d push_direction;
-            if (distance_to_obb_surface < 1e-9)
-            {
-                // Deeply inside, use the direction away from the robot's base (conservative)
-                push_direction = (current_position - Eigen::Vector3d::Zero()).normalized(); 
-            } else {
-                push_direction = vector_from_obb.normalized();
-            }
+            // The required magnitude to exit the safety boundary
+            double required_magnitude_to_boundary = safety_distance_ - distance_to_obb_surface;
 
-            // Update Best Push Vector based on max required magnitude
-            if (required_magnitude > max_required_push_magnitude)
+            // --- Critical Face Logic (Adapted to OBB Local Frame) ---
+
+            // 4. Define the inflated OBB boundaries in its LOCAL frame
+            const Eigen::Vector3d local_min_inflated = -obb.half_extents - Eigen::Vector3d::Constant(safety_distance_);
+            const Eigen::Vector3d local_max_inflated =  obb.half_extents + Eigen::Vector3d::Constant(safety_distance_);
+
+            // 5. Transform the necessary vectors to the OBB's LOCAL frame
+            // OBB.rotation is R_world_to_local (or R_local_to_world, depending on your setup)
+            // Assuming OBB.rotation is the matrix that rotates the local basis vectors INTO the world frame (R_local_to_world).
+            // The inverse (transpose) transforms WORLD vectors INTO the LOCAL frame (R_world_to_local).
+            Eigen::Matrix3d R_W_L = obb.rotation.transpose(); // World to Local Rotation
+
+            // Transform current position and normalized direction into the local OBB frame
+            Eigen::Vector3d current_position_local = R_W_L * (current_position - obb.center);
+            Eigen::Vector3d normalized_dir_local = R_W_L * normalized_dir;
+
+            double current_required_magnitude = std::numeric_limits<double>::infinity();
+            double current_dist_by_norm_direction = std::numeric_limits<double>::infinity();
+            Eigen::Vector3d local_push_direction = Eigen::Vector3d::Zero();
+            
+            // Find the critical face that position_to_robot 'wants' to cross (in local frame)
+            for (int i = 0; i < 3; ++i)
             {
-                max_required_push_magnitude = required_magnitude;
-                best_push_direction = push_direction; 
+                if (std::abs(normalized_dir_local[i]) > 1e-6)
+                {
+                    double magnitude_i;
+                    double dist_by_norm_direction;
+                    
+                    if (normalized_dir_local[i] > 0.0)
+                    {
+                        // Exiting via MAX-face. Push direction is +1 on this local axis.
+                        magnitude_i = local_max_inflated[i] - current_position_local[i];
+                        dist_by_norm_direction = std::abs(magnitude_i / normalized_dir_local[i]);
+                        local_push_direction = Eigen::Vector3d::Zero();
+                        local_push_direction[i] = 1.0; 
+                    }
+                    else // normalized_dir_local[i] < 0.0
+                    {
+                        // Exiting via MIN-face. Push direction is -1 on this local axis.
+                        magnitude_i = current_position_local[i] - local_min_inflated[i];
+                        dist_by_norm_direction = std::abs(magnitude_i / normalized_dir_local[i]);
+                        local_push_direction = Eigen::Vector3d::Zero();
+                        local_push_direction[i] = -1.0;
+                    }
+
+                    // Track the axis with the smallest distance (most critical face)
+                    if (dist_by_norm_direction < current_dist_by_norm_direction)
+                    {
+                        current_dist_by_norm_direction = dist_by_norm_direction;
+                        current_required_magnitude = magnitude_i;
+                        best_push_direction = local_push_direction; // Temporarily storing local push direction
+                    }
+                }
+            }
+            
+            // 6. Transform the push direction back to the world frame
+            if (current_required_magnitude < std::numeric_limits<double>::infinity())
+            {
+                // Push magnitude is the calculated distance to the face, scaled by the push direction.
+                Eigen::Vector3d final_push_direction_world = obb.rotation * best_push_direction;
+
+                // The final magnitude required to exit the face (current_required_magnitude) must be 
+                // compared to the max_required_push_magnitude.
+
+                if (current_required_magnitude > max_required_push_magnitude)
+                {
+                    max_required_push_magnitude = current_required_magnitude;
+                    best_push_direction = final_push_direction_world;
+                }
             }
         }
     }
@@ -239,7 +294,7 @@ pinocchio::SE3 SafetyLayer::adjustToSafePose(const pinocchio::SE3& robot_pose, c
     // initial clamp to not work unnessesarry with invalid positions.
     Eigen::Vector3d safe_position = clampToAABB(desired_position);
 
-    const int MAX_ITERATIONS = 10;
+    const int MAX_ITERATIONS = 20;
     Eigen::Vector3d total_push_vector = Eigen::Vector3d::Zero();
     int push_iterations = 0;
 
