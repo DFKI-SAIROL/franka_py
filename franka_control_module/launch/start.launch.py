@@ -77,7 +77,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "spawn_franka_right",
-            default_value="true",
+            default_value="false",
             description="Spawn franka right",
         ),
         OpaqueFunction(function=generate_robot_nodes),

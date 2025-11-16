@@ -138,7 +138,7 @@ private:
         double amplitude_z = 0.13;
         double frequency_pos = 0.05; // Renamed for clarity: Position frequency
 
-        double offset_y = -0.1;
+        double offset_y = 0.2;
         double amplitude_y = 0.2;
         double frequency_y = 0.03; // Renamed for clarity: Position frequency
 

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <algorithm> // for std::max, std::min
 #include <limits>    // for std::numeric_limits
+#include <memory>    // for std::unique_ptr
 
 #include <Eigen/Dense>
 
@@ -18,15 +19,15 @@
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/multibody/model.hpp>
 
+// Assuming rclcpp and visualization_msgs/msg/marker.hpp are included via vis.hpp or required by init
 #include "vis.hpp"
+
+// ====================================================================================
+// SAFETY LAYER CLASS
+// ====================================================================================
 
 /**
  * @brief Safety layer class to adjust desired Cartesian poses and limit velocity.
- *
- * This layer ensures the target position is:
- * 1. At least 'safety_distance' away from any forbidden AABB (enforced iteratively).
- * 2. Clamped within the defined AllowedAABB workspace.
- * It also computes a safe maximum velocity.
  */
 class SafetyLayer
 {
@@ -37,7 +38,6 @@ public:
     SafetyLayer();
 
     void init(Eigen::Vector3d &initial_position, rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub);
-
 
     /**
      * @brief Adjusts the desired Cartesian pose to a safe pose by applying
@@ -52,9 +52,8 @@ public:
     double current_distance_to_obstacle;
     double current_distance_to_obstacle_along_velocity_direction;
 
-    bool other_initialized_ = false;
+    // --- Other Obstacle Members ---
     Eigen::VectorXd other_q_;
-    std::string other_urdf_decription_;
     std::string other_prefix_;
     pinocchio::Model other_model_;
     std::unique_ptr<pinocchio::Data> other_data_;
@@ -64,8 +63,20 @@ public:
    
 private:
 
-    AABB workspace_, effective_workspace_;
-    std::vector<AABB> forbidden_blocks_;
+    AABB workspace_, effective_workspace_; // AABB for outer workspace boundary remains
+    
+    // All obstacles are now OBBs
+    std::vector<OBB> forbidden_obstacles_; 
+    
+    // Dynamic Obstacle Definitions
+    std::vector<LinkBoundingBox> other_robot_link_boxes_; 
+    std::vector<OBB> current_other_robot_obstacles_;
+    
+    // --- Private Helper Functions for Dynamic Obstacles ---
+    void updateOtherRobotKinematics();
+    void transformBoundingBoxes();
+    Eigen::Vector3d closestPointToOBB(const OBB& box, const Eigen::Vector3d& query_point) const;
+
     Eigen::Vector3d initial_position_;
 
     double safety_distance_ = 0.05;
@@ -74,19 +85,12 @@ private:
     double safety_stopping_acceleration_ = 5.0;
 
     /**
-     * @brief Calculates the closest point on the AABB to the given query point.
-     */
-    Eigen::Vector3d closestPointToAABB(const AABB& box, const Eigen::Vector3d& query_point) const;
-
-    /**
      * @brief Clamps the given position vector within the allowed AABB.
      */
     Eigen::Vector3d clampToAABB(const Eigen::Vector3d& position) const;
 
     /**
      * @brief Calculates the necessary push-off vector from the single most critical violation.
-     * This function is intended to be called iteratively.
-     * Returns Eigen::Vector3d::Zero() if no violation is found.
      */
     Eigen::Vector3d calculatePushOff(const Eigen::Vector3d& current_position, const Eigen::Vector3d& robot_position) const;
     
@@ -94,4 +98,3 @@ private:
     double getDistanceAlongVelocity(const Eigen::Vector3d& query_position, const Eigen::Vector3d& query_velocity) const;
     
 };
-

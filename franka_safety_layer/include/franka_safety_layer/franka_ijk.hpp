@@ -13,7 +13,7 @@
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "std_msgs/msg/string"
+#include "std_msgs/msg/string.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/buffer.h"
@@ -42,6 +42,7 @@ public:
 private:
 
   bool loadPinocchioModel();
+  bool loadOtherPinocchioModel(std::string other_ns);
   void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
   void targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
@@ -68,7 +69,7 @@ private:
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_velocity_pub_; 
   rclcpp::Publisher<franka_custom_msgs::msg::FIJKDebug>::SharedPtr debug_pub_; 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
-  rclcpp::TimerBase::SharedPtr timer_, timer_vis_;
+  rclcpp::TimerBase::SharedPtr timer_;
 
   // TF components
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

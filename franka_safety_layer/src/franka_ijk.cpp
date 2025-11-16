@@ -25,19 +25,20 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   }
 
   std::string other_ns;
-  if(arm_prefix_ == "franka_left") {
+  if(arm_prefix_ == "franka_left_") {
     other_ns = "franka_right";
   }
-  else if(arm_prefix_ == "franka_right") {
+  else if(arm_prefix_ == "franka_right_") {
     other_ns = "franka_left";
   }
   else {
     other_ns = "franka_undefined";
   }
-  safety_layer_.other_prefix_ = other_ns
+  safety_layer_.other_prefix_ = other_ns;
+
+  std::cout << arm_prefix_ << " " << other_ns << std::endl;
 
   other_joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/"+other_ns+"/joint_states", 1, std::bind(&Franka_IJK::otherJointStateCallback, this, std::placeholders::_1));
-  other_robot_description_subscriber_ = this->create_subscription<std_msgs::msg::String>("/"+other_ns+"/robot_description", 1, std::bind(&Franka_IJK::otherRobotDescriptionCallback, this, std::placeholders::_1));
 
   // Parameters for Initial Position
   this->declare_parameter("init_joint_position", std::vector<double>(7, 0.0));
@@ -58,14 +59,18 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
     return;
   }
 
+  // Load Pinocchio Model
+  if (!loadOtherPinocchioModel(other_ns)) {
+    RCLCPP_FATAL(this->get_logger(), "Failed to load other Pinocchio model. Shutting down.");
+    rclcpp::shutdown(); 
+    return;
+  }
+
   auto init_cartesian = computeForwardKinematic(q_init_).translation();
   safety_layer_.init(init_cartesian, marker_pub_);
 
   // 5. Setup Control Timer
   timer_ = this->create_wall_timer(std::chrono::duration<double>(TIME_STEP), std::bind(&Franka_IJK::controlLoop, this));
-
-  timer_vis_ = this->create_wall_timer(std::chrono::seconds(1),std::bind(&WorkspaceVisualizer::publish_markers, this->safety_layer_.vis_));
-
 
   RCLCPP_INFO(this->get_logger(), "franka_ijk initialized.");
 }
@@ -154,17 +159,58 @@ void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::Share
 // other robot
 void Franka_IJK::otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
-  safety_layer_.other_robot_q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), 7);
-  if(safety_layer_.other_initialized_) {
-    safety_layer_.init_other();
-  }
+  RCLCPP_INFO_ONCE(this->get_logger(), "Other joint cb");
+  safety_layer_.other_q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), 7);
 }
 
 
-void Franka_IJK::otherRobotDescriptionCallback(const std_msgs::msg::String::SharedPtr msg)
+bool Franka_IJK::loadOtherPinocchioModel(std::string other_ns)
 {
-  safety_layer_.other_urdf_decription_ = msg->data;
-}  
+  // Create parameter client to get robot_description
+  auto param_client = std::make_shared<rclcpp::SyncParametersClient>(this, "/"+other_ns+"/robot_state_publisher");
+
+  RCLCPP_INFO(this->get_logger(), "Waiting for other robot_state_publisher parameter server...");
+  while (!param_client->wait_for_service(1s)) {
+    if (!rclcpp::ok()) {
+      RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for parameter service.");
+      return false;
+    }
+    RCLCPP_INFO(this->get_logger(), "Waiting for other robot_state_publisher to be available...");
+  }
+
+  // Wait until the parameter exists
+  while (!param_client->has_parameter("robot_description")) {
+    RCLCPP_INFO(this->get_logger(), "Waiting for other 'robot_description' parameter...");
+    rclcpp::sleep_for(500ms);
+  }
+
+  std::string urdf_string = param_client->get_parameter<std::string>("robot_description");
+  if (urdf_string.empty()) {
+    RCLCPP_ERROR(this->get_logger(), "Received empty robot_description from other robot_state_publisher.");
+    return false;
+  }
+
+  RCLCPP_INFO(this->get_logger(), "Successfully fetched other robot_description parameter from other robot_state_publisher");
+
+  // Load Pinocchio model from URDF string
+  try {
+    pinocchio::urdf::buildModelFromXML(urdf_string, safety_layer_.other_model_);
+    safety_layer_.other_data_ = std::make_unique<pinocchio::Data>(safety_layer_.other_model_);
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to load URDF from parameter: %s", e.what());
+    return false;
+  }
+
+  std::string end_effector_link_ = other_ns + "_fr3_link8";
+
+  if (!safety_layer_.other_model_.existFrame(end_effector_link_)) {
+    RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", end_effector_link_.c_str());
+    return false;
+  }
+
+  safety_layer_.other_ee_frame_id_ = safety_layer_.other_model_.getFrameId(end_effector_link_);
+  return true;
+}
 
 
 bool Franka_IJK::tfLookup(std::string frame_from, std::string frame_to, pinocchio::SE3 &result)
@@ -377,6 +423,7 @@ void Franka_IJK::controlLoop()
 
   publishDebugInfos(current_se3, target_se3_, safe_target_se3, desired_cartesian_velocity, dq);
 
+  safety_layer_.vis_.publish_markers();
 }
 
 
