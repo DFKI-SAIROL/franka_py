@@ -47,6 +47,31 @@ void SafetyLayer::init(Eigen::Vector3d &initial_position, rclcpp::Publisher<visu
     vis_.init(marker_pub, workspace_, forbidden_blocks_);
 }
 
+void SafetyLayer::init_other()
+{
+    if(other_urdf_decription_.empty()) return;
+
+    // Load Pinocchio model from URDF string
+    try {
+        pinocchio::urdf::buildModelFromXML(other_urdf_decription_, other_model_);
+        other_data_ = std::make_unique<pinocchio::Data>(other_model_);
+    } catch (const std::exception &e) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to load URDF from parameter: %s", e.what());
+        return;
+    }
+
+    std::string end_effector_link_ = other_prefix_ + "fr3_link8";
+
+    if (!other_model_.existFrame(end_effector_link_)) {
+        RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", end_effector_link_.c_str());
+        return;
+    }
+
+    other_ee_frame_id_ = other_model_.getFrameId(end_effector_link_);
+
+    other_initialized_ = true;
+}
+
 
 Eigen::Vector3d SafetyLayer::closestPointToAABB(const AABB& box, const Eigen::Vector3d& query_point) const
 {
@@ -75,20 +100,20 @@ Eigen::Vector3d SafetyLayer::calculatePushOff(const Eigen::Vector3d& current_pos
     double max_required_push_magnitude = 0.0;
     Eigen::Vector3d best_push_direction = Eigen::Vector3d::Zero();
 
-    // Determine the preferred push direction towards the robot position
-    Eigen::Vector3d push_preference_direction = robot_position - current_position;
+    // Vector from current position to robot
+    Eigen::Vector3d position_to_robot = robot_position - current_position;
     
-    // Normalize preference direction, using a fallback if at the initial position
-    if (push_preference_direction.norm() > 1e-9) {
-        push_preference_direction.normalize();
+    Eigen::Vector3d normalized_dir = Eigen::Vector3d::Zero();
+    if (position_to_robot.norm() > 1e-9) {
+        normalized_dir = position_to_robot.normalized();
     } else {
-        push_preference_direction = Eigen::Vector3d(0.0, 0.0, 1.0); // Fallback: +Z
+        normalized_dir = Eigen::Vector3d(0.0, 0.0, 1.0); // Fallback: +Z
     }
     
     // Iterate over all forbidden blocks
     for (const auto& block : forbidden_blocks_)
     {
-        // Define the limits of the inflated AABB (block + safety_distance_)
+        // Define the limits of the inflated AABB
         Eigen::Vector3d inflated_min = block.min_limits - Eigen::Vector3d::Constant(safety_distance_);
         Eigen::Vector3d inflated_max = block.max_limits + Eigen::Vector3d::Constant(safety_distance_);
 
@@ -108,43 +133,50 @@ Eigen::Vector3d SafetyLayer::calculatePushOff(const Eigen::Vector3d& current_pos
             std::cout << "target " << current_position.transpose() << " inside" << inflated_min.transpose() << ", " << inflated_max.transpose() << std::endl;
 
             double current_required_magnitude = std::numeric_limits<double>::infinity();
+            double current_dist_by_norm_direction = std::numeric_limits<double>::infinity();
             Eigen::Vector3d current_push_direction = Eigen::Vector3d::Zero();
 
-            // Find the required push magnitude and direction based on the 'push_preference_direction'
+            // Find the critical face that position_to_robot 'wants' to cross
             for (int i = 0; i < 3; ++i)
             {
-                double magnitude_i = 0.0;
                 
-                if (std::abs(push_preference_direction[i]) > 1e-6)
+                if (std::abs(normalized_dir[i]) > 1e-6)
                 {
-                    double preferred_axis_direction = (push_preference_direction[i] > 0.0) ? 1.0 : -1.0;
-
-                    if (preferred_axis_direction > 0.0)
+                    double magnitude_i;
+                    double dist_by_norm_direction;
+                    
+                    if (normalized_dir[i] > 0.0)
                     {
-                        // Push in the positive direction (exit via max face)
+                        // Exiting via MAX-face. Push direction is +1 on this axis.
                         magnitude_i = inflated_max[i] - current_position[i];
+                        dist_by_norm_direction = std::abs(magnitude_i / normalized_dir[i]);
+                        current_push_direction = Eigen::Vector3d::Zero();
+                        current_push_direction[i] = 1.0; 
                     }
-                    else
+                    else // face_direction < 0.0
                     {
-                        // Push in the negative direction (exit via min face)
+                        // Exiting via MIN-face. Push direction is -1 on this axis.
                         magnitude_i = current_position[i] - inflated_min[i];
+                        dist_by_norm_direction = std::abs(magnitude_i / normalized_dir[i]);
+                        current_push_direction = Eigen::Vector3d::Zero();
+                        current_push_direction[i] = -1.0;
                     }
 
-                    // Track the most critical push for the current block
-                    if (magnitude_i < current_required_magnitude)
+                    // Track the axis with the smallest distance (most critical face)
+                    if (dist_by_norm_direction < current_dist_by_norm_direction)
                     {
+                        current_dist_by_norm_direction = dist_by_norm_direction;
                         current_required_magnitude = magnitude_i;
-                        current_push_direction = Eigen::Vector3d::Zero();
-                        current_push_direction[i] = preferred_axis_direction;
+                        best_push_direction = current_push_direction; 
                     }
                 }
             }
             
             // Update Best Push Vector based on max required magnitude across all blocks
-            if (current_required_magnitude > max_required_push_magnitude)
+            if (current_required_magnitude < std::numeric_limits<double>::infinity() && current_required_magnitude > max_required_push_magnitude)
             {
                 max_required_push_magnitude = current_required_magnitude;
-                best_push_direction = current_push_direction;
+                // best_push_direction is already set in the loop above
             }
         }
     }
@@ -152,6 +184,8 @@ Eigen::Vector3d SafetyLayer::calculatePushOff(const Eigen::Vector3d& current_pos
     // Return the push vector (direction * magnitude)
     return best_push_direction * max_required_push_magnitude;
 }
+
+
 pinocchio::SE3 SafetyLayer::adjustToSafePose(const pinocchio::SE3& robot_pose, const pinocchio::SE3& desired_pose) const
 {
     // 1. Extract desired position and orientation
@@ -212,7 +246,7 @@ pinocchio::SE3 SafetyLayer::adjustToSafePose(const pinocchio::SE3& robot_pose, c
 double SafetyLayer::getShortestDistanceToSafetyBoundary(const Eigen::Vector3d& query_position) const
 {
     // A positive 's' means we are safe. A negative 's' means we have penetrated the safety zone.
-    double min_distance_remaining = std::numeric_limits<double>::infinity();
+    double min_distance_remaining = 10;
 
     // 1. Check distance to all forbidden AABBs
     for (const auto& block : forbidden_blocks_)
@@ -239,7 +273,7 @@ double SafetyLayer::getShortestDistanceToSafetyBoundary(const Eigen::Vector3d& q
         query_position.z() < effective_min.z() || query_position.z() > effective_max.z())
     {
         // If outside or on the boundary, distance 's' is 0 or negative (taken care of by forbidden blocks).
-        min_distance_remaining = std::min(min_distance_remaining, 0.0);
+        min_distance_remaining = 0;
     }
     else
     {
@@ -260,14 +294,150 @@ double SafetyLayer::getShortestDistanceToSafetyBoundary(const Eigen::Vector3d& q
     return min_distance_remaining;
 }
 
+double SafetyLayer::getDistanceAlongVelocity(const Eigen::Vector3d& query_position, const Eigen::Vector3d& query_velocity) const
+{
+    // Die kleinste Distanz entlang des Geschwindigkeitsvektors bis zum Auftreffen auf eine Grenze
+    double min_distance_t = 10;
 
-double SafetyLayer::getMaxSafeVelocity(const Eigen::Vector3d& position) const
+    // Normalisiere die Geschwindigkeit, um die Richtung des Strahls zu erhalten
+    double velocity_norm = query_velocity.norm();
+    
+    // Wenn die Geschwindigkeit Null ist, gibt es keine Richtung, entlang derer geprüft werden kann.
+    if (velocity_norm < 1e-9) {
+        // Im Ruhezustand geben wir die Distanz zur nächstgelegenen Sicherheitsgrenze zurück.
+        // Wir verwenden dafür die alte Logik (nur AABBs, da wir die Kollisionszeit wollen).
+        return getShortestDistanceToSafetyBoundary(query_position); 
+    }
+    
+    // Der Richtungsvektor des Strahls (Einheitsvektor)
+    const Eigen::Vector3d ray_direction = query_velocity / velocity_norm;
+
+    // --- 1. Distanz zu allen verbotenen AABBs (Forbidden Blocks + Safety Margin) ---
+    
+    for (const auto& block : forbidden_blocks_)
+    {
+
+        // Strahl-AABB-Schnittprüfung (Slab Method)
+        double t_min = 0.0; // Minimaler positiver Schnittpunkt
+        double t_max = std::numeric_limits<double>::infinity(); // Maximaler Schnittpunkt
+
+        for (int i = 0; i < 3; ++i)
+        {
+            if (std::abs(ray_direction[i]) < 1e-6) // Strahl ist parallel zur Achse i
+            {
+                // Prüfen, ob der Startpunkt innerhalb der AABB-Grenzen dieser Achse liegt
+                if (query_position[i] < block.min_limits[i] || query_position[i] > block.max_limits[i])
+                {
+                    // Der Strahl ist parallel zur Fläche und liegt außerhalb der Platte -> Kein Schnitt
+                    t_min = std::numeric_limits<double>::infinity(); 
+                    break; // Beende die Schleife, da kein Schnitt möglich ist
+                }
+                // Ansonsten liegt der Strahl innerhalb der Platte: t_min und t_max werden nicht beeinflusst.
+            }
+            else
+            {
+                // Berechne die Schnittpunkte t1 und t2 für die aktuelle Achse (X, Y oder Z)
+                double t1 = (block.min_limits[i] - query_position[i]) / ray_direction[i];
+                double t2 = (block.max_limits[i] - query_position[i]) / ray_direction[i];
+
+                // Stelle sicher, dass t1 der kleinere Schnittpunkt ist
+                if (t1 > t2) std::swap(t1, t2);
+                
+                // t_min ist der größte aller t1-Werte
+                t_min = std::max(t_min, t1);
+                // t_max ist der kleinste aller t2-Werte
+                t_max = std::min(t_max, t2);
+            }
+        }
+
+        // Wenn t_min > t_max, kreuzt der Strahl das AABB nicht.
+        // Wenn t_max < 0, liegt das AABB hinter dem Strahl.
+        if (t_min <= t_max && t_max >= 0.0)
+        {
+            // Der minimale positive Schnittpunkt t_hit ist t_min.
+            // (Wenn t_min < 0, bedeutet das, dass query_position IM Block liegt, 
+            // der Strahl tritt bei t_min < 0 ein und bei t_max > 0 aus. Wir verwenden t_max als Austrittspunkt.)
+            
+            double t_hit = t_min;
+            if (t_min < 0.0) {
+                // Der Punkt ist bereits innerhalb der Sicherheitszone des Blocks. 
+                t_hit = 0.0; // Wir sind bereits in der Sicherheitszone
+            }
+
+            // Wir verfolgen den kleinsten positiven t-Wert.
+            min_distance_t = std::min(min_distance_t, t_hit);
+        }
+    }
+    
+    // --- 2. Distanz zur äußeren Grenze (Workspace Limits - Safety Margin) ---
+    
+    // Führe eine weitere Ray-AABB-Schnittprüfung gegen den **erlaubten** Arbeitsraum durch.
+    // Hier suchen wir den Schnittpunkt, an dem der Strahl den erlaubten Raum verlässt (t_max des erlaubten AABB).
+    
+    double workspace_t_min = std::numeric_limits<double>::lowest();
+    double workspace_t_max = std::numeric_limits<double>::infinity();
+
+    for (int i = 0; i < 3; ++i)
+    {
+        if (std::abs(ray_direction[i]) < 1e-6)
+        {
+            // Prüfen, ob der Startpunkt innerhalb der erlaubten AABB-Grenzen liegt
+            if (query_position[i] < workspace_.min_limits[i] || query_position[i] > workspace_.max_limits[i])
+            {
+                // Wenn wir parallel zur Fläche laufen und außerhalb sind, 
+                // haben wir den erlaubten Bereich bei t=0 verlassen.
+                workspace_t_max = 0.0;
+                break; // Beende die Schleife
+            }
+        }
+        else
+        {
+            // Berechne die Schnittpunkte t1 und t2 für die aktuelle Achse
+            double t1 = (workspace_.min_limits[i] - query_position[i]) / ray_direction[i];
+            double t2 = (workspace_.max_limits[i] - query_position[i]) / ray_direction[i];
+
+            if (t1 > t2) std::swap(t1, t2);
+
+            // Wir sind an t_min interessiert (zum Eintreten) und t_max (zum Austreten)
+            workspace_t_min = std::max(workspace_t_min, t1);
+            workspace_t_max = std::min(workspace_t_max, t2);
+        }
+    }
+
+    // Wenn der Strahl den erlaubten Bereich kreuzt und der Austrittspunkt positiv ist
+    if (workspace_t_min <= workspace_t_max && workspace_t_max >= 0.0)
+    {
+        // Der Strahl verlässt den erlaubten Bereich bei workspace_t_max.
+        // Wir sind nur am ersten Austritt interessiert, der vor uns liegt.
+        double t_exit = workspace_t_max;
+        
+        // Wenn wir bereits außerhalb sind (query_position liegt außerhalb des effektiven AABB),
+        // sollte der Strahl bereits bei t=0 den erlaubten Bereich verlassen haben.
+        // Wir verwenden in diesem Fall t=0.
+        if (workspace_t_min > 0.0) {
+            // Strahl tritt erst nach t=0 in den erlaubten Bereich ein -> Der Punkt ist außerhalb.
+            // Da wir die Distanz entlang der Geschwindigkeit suchen, muss dies der kürzeste Weg sein.
+            // Der korrekteste Wert wäre die Distanz zur nächsten Grenze (t=0).
+            t_exit = 0.0;
+        }
+
+        // Der kürzeste Abstand zum Verlassen des effektiven Arbeitsraums
+        min_distance_t = std::min(min_distance_t, t_exit);
+    }
+    
+    // Der Rückgabewert ist die minimale positive Distanz $t$
+    return min_distance_t;
+}
+
+
+double SafetyLayer::getMaxSafeVelocity(const Eigen::Vector3d& position, const Eigen::Vector3d& velocity) 
 {
     // The closest distance 's' is the remaining distance to the safety boundary.
-    double s = getShortestDistanceToSafetyBoundary(position);
-    
+    current_distance_to_obstacle = getShortestDistanceToSafetyBoundary(position);
+    current_distance_to_obstacle_along_velocity_direction = getDistanceAlongVelocity(position, velocity);
+   
     // safe_velocity = min(max_velocity, sqrt(2 * a * max(s, 0.0)))
-    double safe_velocity = std::min(max_velocity_, min_velocity_ + std::sqrt(2 * safety_stopping_acceleration_ * std::max(s, 0.0)));
+    double safe_velocity = std::min(max_velocity_, min_velocity_ + std::sqrt(2 * safety_stopping_acceleration_ * std::max(current_distance_to_obstacle_along_velocity_direction, 0.0)));
     
     return safe_velocity;
 }

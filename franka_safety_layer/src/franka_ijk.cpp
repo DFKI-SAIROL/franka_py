@@ -24,6 +24,21 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
     arm_prefix_ += "_";
   }
 
+  std::string other_ns;
+  if(arm_prefix_ == "franka_left") {
+    other_ns = "franka_right";
+  }
+  else if(arm_prefix_ == "franka_right") {
+    other_ns = "franka_left";
+  }
+  else {
+    other_ns = "franka_undefined";
+  }
+  safety_layer_.other_prefix_ = other_ns
+
+  other_joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/"+other_ns+"/joint_states", 1, std::bind(&Franka_IJK::otherJointStateCallback, this, std::placeholders::_1));
+  other_robot_description_subscriber_ = this->create_subscription<std_msgs::msg::String>("/"+other_ns+"/robot_description", 1, std::bind(&Franka_IJK::otherRobotDescriptionCallback, this, std::placeholders::_1));
+
   // Parameters for Initial Position
   this->declare_parameter("init_joint_position", std::vector<double>(7, 0.0));
   std::vector<double> init_joint_position_vec = this->get_parameter("init_joint_position").as_double_array();
@@ -136,6 +151,22 @@ void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::Share
 }
 
 
+// other robot
+void Franka_IJK::otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
+{
+  safety_layer_.other_robot_q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), 7);
+  if(safety_layer_.other_initialized_) {
+    safety_layer_.init_other();
+  }
+}
+
+
+void Franka_IJK::otherRobotDescriptionCallback(const std_msgs::msg::String::SharedPtr msg)
+{
+  safety_layer_.other_urdf_decription_ = msg->data;
+}  
+
+
 bool Franka_IJK::tfLookup(std::string frame_from, std::string frame_to, pinocchio::SE3 &result)
 {
   geometry_msgs::msg::TransformStamped transform_stamped;
@@ -240,7 +271,7 @@ double Franka_IJK::computeCartesianVelocity(
     desired_cartesian_velocity *= reduction;
   }
 
-  double max_safe_v = safety_layer_.getMaxSafeVelocity(current_se3.translation());
+  double max_safe_v = safety_layer_.getMaxSafeVelocity(current_se3.translation(), desired_cartesian_velocity);
   if (desired_cartesian_velocity.norm() > max_safe_v)
   {
     double reduction = max_safe_v / desired_cartesian_velocity.norm();
@@ -419,7 +450,6 @@ void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &
   franka_custom_msgs::msg::FIJKDebug debug_msg;
   debug_msg.header.stamp = this->get_clock()->now();
   debug_msg.header.frame_id = target_frame_;
-  
 
   debug_msg.actual_pose = convert(current_se3);
   debug_msg.target_pose = convert(target_se3);
@@ -427,6 +457,9 @@ void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &
   debug_msg.cmd_pose = convert(computeForwardKinematic(q_ + dq * MOTION_TIME_STEP));
   debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_ + dq * FINAL_TIME_STEP));
   debug_msg.cartesian_velocity = convert(desired_cartesian_velocity);
+
+  debug_msg.safety_distance = safety_layer_.current_distance_to_obstacle;
+  debug_msg.safety_distance_along_velocity = safety_layer_.current_distance_to_obstacle_along_velocity_direction;
 
   debug_pub_->publish(std::move(debug_msg));
 }

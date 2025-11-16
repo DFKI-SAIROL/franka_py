@@ -175,7 +175,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'spawn_franka_left',
-            default_value='false',
+            default_value='true',
             description='Spawn franka left',
         ),
         DeclareLaunchArgument(

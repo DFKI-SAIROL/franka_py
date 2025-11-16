@@ -6,9 +6,17 @@
 #include <algorithm> // for std::max, std::min
 #include <limits>    // for std::numeric_limits
 
-// Pinocchio/Eigen types for 3D pose and vectors
-#include <pinocchio/spatial/se3.hpp>
 #include <Eigen/Dense>
+
+// Pinocchio Includes
+#include <pinocchio/fwd.hpp>
+#include <pinocchio/spatial/se3.hpp>
+#include <pinocchio/parsers/urdf.hpp>
+#include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/algorithm/compute-all-terms.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
+#include <pinocchio/algorithm/jacobian.hpp>
+#include <pinocchio/multibody/model.hpp>
 
 #include "vis.hpp"
 
@@ -37,10 +45,23 @@ public:
      */
     pinocchio::SE3 adjustToSafePose(const pinocchio::SE3& robot_pose, const pinocchio::SE3& desired_pose) const;
 
-    double getMaxSafeVelocity(const Eigen::Vector3d& position) const;
+    double getMaxSafeVelocity(const Eigen::Vector3d& position, const Eigen::Vector3d& velocity);
 
     WorkspaceVisualizer vis_;
 
+    double current_distance_to_obstacle;
+    double current_distance_to_obstacle_along_velocity_direction;
+
+    bool other_initialized_ = false;
+    Eigen::VectorXd other_q_;
+    std::string other_urdf_decription_;
+    std::string other_prefix_;
+    pinocchio::Model other_model_;
+    std::unique_ptr<pinocchio::Data> other_data_;
+    pinocchio::FrameIndex other_ee_frame_id_;
+
+    void init_other();
+   
 private:
 
     AABB workspace_, effective_workspace_;
@@ -70,6 +91,7 @@ private:
     Eigen::Vector3d calculatePushOff(const Eigen::Vector3d& current_position, const Eigen::Vector3d& robot_position) const;
     
     double getShortestDistanceToSafetyBoundary(const Eigen::Vector3d& query_position) const;
+    double getDistanceAlongVelocity(const Eigen::Vector3d& query_position, const Eigen::Vector3d& query_velocity) const;
     
 };
 

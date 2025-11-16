@@ -13,6 +13,7 @@
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/string"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/buffer.h"
@@ -44,10 +45,13 @@ private:
   void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
   void targetPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
+  void otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
+  void otherRobotDescriptionCallback(const std_msgs::msg::String::SharedPtr msg);
+  
   bool tfLookup(std::string frame_from, std::string frame_to, pinocchio::SE3 &result);
 
-geometry_msgs::msg::Pose convert(pinocchio::SE3 se3);
-geometry_msgs::msg::Twist convert(Eigen::VectorXd v);
+  geometry_msgs::msg::Pose convert(pinocchio::SE3 se3);
+  geometry_msgs::msg::Twist convert(Eigen::VectorXd v);
 
   pinocchio::SE3 computeForwardKinematic(Eigen::VectorXd q);
   double computeCartesianVelocity(const pinocchio::SE3& current_se3, const pinocchio::SE3& target_se3, Eigen::VectorXd &desired_cartesian_velocity);
@@ -59,7 +63,8 @@ geometry_msgs::msg::Twist convert(Eigen::VectorXd v);
 
   // ROS 2 components
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_, other_joint_state_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr other_robot_description_subscriber_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_velocity_pub_; 
   rclcpp::Publisher<franka_custom_msgs::msg::FIJKDebug>::SharedPtr debug_pub_; 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
