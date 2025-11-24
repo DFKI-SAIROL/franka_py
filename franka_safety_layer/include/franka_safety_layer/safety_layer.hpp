@@ -75,6 +75,7 @@ private:
     std::vector<OBB> current_other_robot_obstacles_;
     
     // --- Private Helper Functions for Dynamic Obstacles ---
+    OBB gen_fixed_obb(const Eigen::Vector3d& minl, const Eigen::Vector3d& maxl);
     void updateOtherRobotKinematics();
     void transformBoundingBoxes();
     Eigen::Vector3d closestPointToOBB(const OBB& box, const Eigen::Vector3d& query_point) const;

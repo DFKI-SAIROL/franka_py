@@ -9,23 +9,13 @@ SafetyLayer::SafetyLayer()
         Eigen::Vector3d( 0.8,  0.9, 1.2)  // max_limits [x_max, y_max, z_max]
     };
     
-    // 2. Define Forbidden Obstacles (Now all OBBs)
-    
-    // Helper lambda to create a fixed, world-aligned OBB
-    auto fixed_obb = [](const Eigen::Vector3d& minl, const Eigen::Vector3d& maxl) 
-    {
-        OBB obb;
-        obb.center = (minl + maxl) / 2.0;
-        obb.half_extents = (maxl - minl) / 2.0;
-        obb.rotation = Eigen::Matrix3d::Identity();
-        return obb;
-    };
+    // 2. Define Forbidden Obstacles (Now all OBBs)    
 
     // Fixed Obstacles (AABBs converted to OBBs with Identity Rotation)
-    forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d(-0.5, -0.2, 0.0), Eigen::Vector3d(-0.1, 0.2, 0.7))); // center cam
-    forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d( 0.3, -0.9, 0.0), Eigen::Vector3d( 0.8, -0.65, 0.7))); // right cam
-    forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d( 0.3, 0.65, 0.0), Eigen::Vector3d( 0.8, 0.9, 0.7))); // left cam 
-    forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d( 0.4, -0.2, 0.0), Eigen::Vector3d( 0.8, 0.2, 0.6))); // drawer
+    forbidden_obstacles_.push_back(gen_fixed_obb(Eigen::Vector3d(-0.5, -0.2, 0.0), Eigen::Vector3d(-0.1, 0.2, 0.7))); // center cam
+    forbidden_obstacles_.push_back(gen_fixed_obb(Eigen::Vector3d( 0.3, -0.9, 0.0), Eigen::Vector3d( 0.8, -0.65, 0.7))); // right cam
+    forbidden_obstacles_.push_back(gen_fixed_obb(Eigen::Vector3d( 0.3, 0.65, 0.0), Eigen::Vector3d( 0.8, 0.9, 0.7))); // left cam 
+    forbidden_obstacles_.push_back(gen_fixed_obb(Eigen::Vector3d( 0.5, -0.2, 0.0), Eigen::Vector3d( 0.8, 0.2, 0.6))); // drawer
 
     // --- NEW: Define Other Robot Link Boxes (Franka FR3 Example) ---
     // NOTE: These are relative to the link frames and must be tuned!
@@ -62,6 +52,16 @@ void SafetyLayer::init(Eigen::Vector3d &initial_position, rclcpp::Publisher<visu
     // NOTE: vis_.init would need to be updated to accept a list of OBBs
     vis_.init(marker_pub, workspace_, forbidden_obstacles_, current_other_robot_obstacles_); 
 }
+
+
+OBB SafetyLayer::gen_fixed_obb(const Eigen::Vector3d& minl, const Eigen::Vector3d& maxl) 
+{
+    OBB obb;
+    obb.center = (minl + maxl) / 2.0;
+    obb.half_extents = (maxl - minl) / 2.0;
+    obb.rotation = Eigen::Matrix3d::Identity();
+    return obb;
+};
 
 
 // ====================================================================================
@@ -204,9 +204,8 @@ Eigen::Vector3d SafetyLayer::calculatePushOff(const Eigen::Vector3d& current_pos
         // 3. Determine if the current position is inside the INFLATED OBB
         if (distance_to_obb_surface < safety_distance_ - 1e-5)
         {
-            std::cout << "pos : " << current_position.transpose() << std::endl;
-            std::cout << distance_to_obb_surface << " inside (" << (obb.center+obb.half_extents+Eigen::Vector3d::Constant(safety_distance_)).transpose() << ") (" << (obb.center-obb.half_extents-Eigen::Vector3d::Constant(safety_distance_)).transpose() << ")" << std::endl;
-            std::cout << "closest " << closest_on_obb.transpose() << std::endl;
+            // The required magnitude to exit the safety boundary
+            double required_magnitude_to_boundary = safety_distance_ - distance_to_obb_surface;
 
             // --- Critical Face Logic (Adapted to OBB Local Frame) ---
 
