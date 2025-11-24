@@ -53,6 +53,8 @@ public:
     double current_distance_to_obstacle_along_velocity_direction;
 
     // --- Other Obstacle Members ---
+    bool other_robot_check = false;
+
     Eigen::VectorXd other_q_;
     std::string other_prefix_;
     pinocchio::Model other_model_;
@@ -79,9 +81,9 @@ private:
 
     Eigen::Vector3d initial_position_;
 
-    double safety_distance_ = 0.05;
-    double min_velocity_ = 0.1;
-    double max_velocity_ = 10.0;
+    double safety_distance_ = 0.10;
+    double min_velocity_ = 0.02;
+    double max_velocity_ = 1.0;
     double safety_stopping_acceleration_ = 5.0;
 
     /**
@@ -94,6 +96,7 @@ private:
      */
     Eigen::Vector3d calculatePushOff(const Eigen::Vector3d& current_position, const Eigen::Vector3d& robot_position) const;
     
+    double intersectRayOBB(const Eigen::Vector3d& ray_origin, const Eigen::Vector3d& ray_dir, const OBB& obb) const;
     double getShortestDistanceToSafetyBoundary(const Eigen::Vector3d& query_position) const;
     double getDistanceAlongVelocity(const Eigen::Vector3d& query_position, const Eigen::Vector3d& query_velocity) const;
     

@@ -132,14 +132,14 @@ private:
         double elapsed = (this->get_clock()->now() - start_time_).seconds();
 
         // --- Parameters (Add new ones for rotation) ---
-        double offset_x = 0.0;
-        double offset_z = -0.3;
+        double offset_x = -0.1;
+        double offset_z = -0.2;
         double amplitude_x = 0.1;
-        double amplitude_z = 0.13;
+        double amplitude_z = 0.1;
         double frequency_pos = 0.05; // Renamed for clarity: Position frequency
 
-        double offset_y = 0.2;
-        double amplitude_y = 0.2;
+        double offset_y = 0.0;
+        double amplitude_y = 0.05;
         double frequency_y = 0.03; // Renamed for clarity: Position frequency
 
         // New parameters for rotation

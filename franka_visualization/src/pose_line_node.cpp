@@ -49,8 +49,29 @@ public:
     sub_1 = create_subscription<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 10, std::bind(&PoseLineNode::tcp_callback, this, _1));
     sub_2 = create_subscription<franka_custom_msgs::msg::FIJKDebug>("fijk_debug", 10, std::bind(&PoseLineNode::fijk_debug_callback, this, _1));
 
-    source_frame_ = "franka_right_fr3_link0";
-    target_frame_ = "franka_right_fr3_link8";
+    // Detect own namespace
+    std::string ns = this->get_namespace();
+
+    // Default: use franka_right
+    std::string arm = "franka_unknown";
+
+    if (ns == "/franka_left") {
+      arm = "franka_left";
+    } 
+    else if (ns == "/franka_right") {
+      arm = "franka_right";
+    } 
+    else if (ns == "/franka_main") {
+      arm = "franka_main";
+    } 
+    else {
+      RCLCPP_WARN(this->get_logger(), "PoseLineNode started in namespace '%s' which is not a known arm.", ns.c_str());
+      rclcpp::shutdown(); 
+    }
+
+    // Assign TF frames based on namespace
+    source_frame_ = arm + "_fr3_link0";
+    target_frame_ = arm + "_fr3_link8";
 
     // Setup timer for TF lookup (new)
     timer_ = create_wall_timer(std::chrono::milliseconds(50), std::bind(&PoseLineNode::tf_callback, this));

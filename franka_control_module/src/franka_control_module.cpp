@@ -77,7 +77,7 @@ private:
             RCLCPP_INFO_ONCE(this->get_logger(), "Publishing init trajectory command.");
             joint_trajectory_publisher_->publish(msg);
 
-            if((this->get_clock()->now() - start_time_).seconds() >= 1)
+            if((this->get_clock()->now() - start_time_).seconds() >= 3)
             {
                 initialized_ = true;
             }
@@ -107,19 +107,18 @@ private:
                 }
 
                 // Define a trajectory point
-                /*{
+                {
                     trajectory_msgs::msg::JointTrajectoryPoint point;
 
                     point.positions = init_joint_position_;
                     point.velocities = std::vector<double>(7, 0.0);
 
                     point.positions[6] += value + dvalue * rclcpp::Duration(trajectory_points_time).seconds();
-                    point.velocities[6] += dvalue;
 
                     point.time_from_start = rclcpp::Duration(2*trajectory_points_time);
 
                     msg.points.push_back(point);
-                }*/
+                }
 
                 RCLCPP_INFO_ONCE(this->get_logger(), "Publishing periodic trajectory command.");
                 joint_trajectory_publisher_->publish(msg);
@@ -140,7 +139,7 @@ private:
 
     double periodic_length_factor = 0.5;
     double movement_factor = 1;
-    int init_time_s = 5;
+    int init_time_s = 10;
     std::chrono::milliseconds trajectory_points_time = 100ms;
     
 };

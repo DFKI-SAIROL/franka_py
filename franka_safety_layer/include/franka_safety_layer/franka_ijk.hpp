@@ -101,8 +101,8 @@ private:
   const double K_NULL = 1.0;  // Gain for nullspace posture task (Secondary Task)
 
   const double frequency = 15;
-  const double TIME_STEP = 1.0 / frequency; // Control loop frequency (50 Hz)
-  const double MOTION_TIME_STEP = 0.8 * TIME_STEP; 
-  const double FINAL_TIME_STEP = 3 * TIME_STEP; // Control loop frequency (50 Hz)
+  const double TIME_STEP = 1.0 / frequency; // Control loop frequency (15 Hz)
+  const double MOTION_TIME_STEP = 1.0 * TIME_STEP; 
+  const double FINAL_TIME_STEP = 5 * TIME_STEP;
 
 };

@@ -60,12 +60,19 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   }
 
   // Load Pinocchio Model
-  if (!loadOtherPinocchioModel(other_ns)) {
-    RCLCPP_FATAL(this->get_logger(), "Failed to load other Pinocchio model. Shutting down.");
-    rclcpp::shutdown(); 
-    return;
+  if(safety_layer_.other_robot_check)
+  {
+    if (!loadOtherPinocchioModel(other_ns)) {
+      RCLCPP_FATAL(this->get_logger(), "Failed to load other Pinocchio model. Shutting down.");
+      rclcpp::shutdown(); 
+      return;
+    }
   }
-
+  else
+  {
+    RCLCPP_ERROR(this->get_logger(), "Not loading other Pinocchio model.");
+  }
+  
   auto init_cartesian = computeForwardKinematic(q_init_).translation();
   safety_layer_.init(init_cartesian, marker_pub_);
 
@@ -377,18 +384,25 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
 void Franka_IJK::controlLoop()
 {
 
-  if (target_pose_stamped_.header.stamp.sec == 0) {
-    return;
-  }
-
   if (q_.size() == 0 || q_.allFinite() == false) {
     return;
   }
 
-  pinocchio::SE3 tf_se3;
-  if(!tfLookup(arm_prefix_ + "fr3_link0", arm_prefix_ + "fr3_link8", tf_se3)) {
+  if (target_pose_stamped_.header.stamp.sec == 0) 
+  {
+    pinocchio::SE3 current_se3 = computeForwardKinematic(q_);
+    Eigen::VectorXd desired_cartesian_velocity;
+    computeCartesianVelocity(current_se3, current_se3, desired_cartesian_velocity);
+    Eigen::VectorXd dq = Eigen::VectorXd::Zero(model_.nv);
+    publishDebugInfos(current_se3, current_se3, current_se3, desired_cartesian_velocity, dq);
+    safety_layer_.vis_.publish_markers();
     return;
   }
+
+  //pinocchio::SE3 tf_se3;
+  //if(!tfLookup(arm_prefix_ + "fr3_link0", arm_prefix_ + "fr3_link8", tf_se3)) {
+  //  return;
+  //}
 
   pinocchio::SE3 current_se3 = computeForwardKinematic(q_);
 
@@ -446,18 +460,12 @@ void Franka_IJK::publishCommand(double target_reachable_factor, const Eigen::Vec
       point.positions.push_back(q_(i) + dq(i) * MOTION_TIME_STEP);
     }
 
-    if(target_reachable_factor == 1)
-    {
-      point.velocities.assign(model_.nv, 0);
-    }
-    else
-    {
-      point.velocities.reserve(model_.nv);
-      for (int i = 0; i < model_.nv; ++i) {
-        point.velocities.push_back(dq(i));
-      }
-    }
-    point.accelerations.assign(model_.nv, 0);
+    point.velocities.reserve(model_.nv);
+    for (int i = 0; i < model_.nv; ++i) {
+      point.velocities.push_back(0.5 * dq(i));
+    }    
+    
+    // point.accelerations.assign(model_.nv, 0);
 
     traj_msg->points.push_back(point);
   }
@@ -467,23 +475,13 @@ void Franka_IJK::publishCommand(double target_reachable_factor, const Eigen::Vec
     point.time_from_start = rclcpp::Duration::from_seconds(FINAL_TIME_STEP); 
     
     point.velocities.reserve(model_.nv);
-    if(target_reachable_factor == 1)
-    {
-      for (int i = 0; i < model_.nv; ++i) {
-        point.positions.push_back(q_(i) + dq(i) * MOTION_TIME_STEP);
-      }
-    }
-    else
-    {
-      double fdt = std::min(MOTION_TIME_STEP * target_reachable_factor, FINAL_TIME_STEP);
-      for (int i = 0; i < model_.nv; ++i) {
-        point.positions.push_back(q_(i) + dq(i) * fdt);
-      }
+    for (int i = 0; i < model_.nv; ++i) {
+      point.positions.push_back(q_(i) + dq(i) * FINAL_TIME_STEP);
     }
     
-
     point.velocities.assign(model_.nv, 0);
-    point.accelerations.assign(model_.nv, 0);
+    
+    // point.accelerations.assign(model_.nv, 0);
 
     traj_msg->points.push_back(point);
   }

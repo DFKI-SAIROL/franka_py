@@ -224,31 +224,25 @@
         - fr3_joint7
 
       command_interfaces:
-        - position
+        - effort
 
       state_interfaces:
         - position
         - velocity
 
       gains:
-        fr3_joint1: { p: 600., d: 30., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
-        fr3_joint2: { p: 600., d: 30., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
-        fr3_joint3: { p: 600., d: 30., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
-        fr3_joint4: { p: 600., d: 30., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
-        fr3_joint5: { p: 250., d: 10., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
-        fr3_joint6: { p: 150., d: 10., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.001, normalize_error: false }
-        fr3_joint7: { p:  50., d:  5., i: 0., i_clamp: 1., angle_wraparound: false, ff_velocity_scale: 0.1, normalize_error: false }
+        fr3_joint1: { p: 600., d: 30., i: 0., i_clamp: 1. }
+        fr3_joint2: { p: 600., d: 30., i: 0., i_clamp: 1. }
+        fr3_joint3: { p: 600., d: 30., i: 0., i_clamp: 1. }
+        fr3_joint4: { p: 600., d: 30., i: 0., i_clamp: 1. }
+        fr3_joint5: { p: 250., d: 10., i: 0., i_clamp: 1. }
+        fr3_joint6: { p: 150., d: 10., i: 0., i_clamp: 1. }
+        fr3_joint7: { p:  50., d:  5., i: 0., i_clamp: 1. }
 
+      interpolate_from_desired_state: true  
       state_publish_rate: 50.0
       action_monitor_rate: 20.0
 
-      allow_partial_joints_goal: false
-      allow_integration_in_goal_trajectories: false
-      allow_nonzero_velocity_at_trajectory_end: true
-      open_loop_control: false
-      constraints:
-        stopped_velocity_tolerance: 0.01
-        goal_time: 0.0
 
    
 /**: 
@@ -268,10 +262,14 @@
         - fr3_joint6
         - fr3_joint7
       gains:
-        fr3_joint1: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint2: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint3: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint4: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint5: { p: 250., d: 10., i: 0., i_clamp: 1. }
-        fr3_joint6: { p: 150., d: 10., i: 0., i_clamp: 1. }
-        fr3_joint7: { p: 50., d: 5., i: 0., i_clamp: 1. }
+        fr3_joint1: { p: 24., d: 2., i: 0., i_clamp: 1. }
+        fr3_joint2: { p: 24., d: 2., i: 0., i_clamp: 1. }
+        fr3_joint3: { p: 24., d: 2., i: 0., i_clamp: 1. }
+        fr3_joint4: { p: 24., d: 1., i: 0., i_clamp: 1. }
+        fr3_joint5: { p: 10., d: 1., i: 0., i_clamp: 1. }
+        fr3_joint6: { p: 6., d: 1., i: 0., i_clamp: 1. }
+        fr3_joint7: { p: 2., d: 0.5, i: 0., i_clamp: 1. }
+
+      interpolate_from_desired_state: true  
+      state_publish_rate: 50.0
+      action_monitor_rate: 20.0

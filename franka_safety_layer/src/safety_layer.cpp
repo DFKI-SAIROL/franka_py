@@ -25,7 +25,7 @@ SafetyLayer::SafetyLayer()
     forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d(-0.5, -0.2, 0.0), Eigen::Vector3d(-0.1, 0.2, 0.7))); // center cam
     forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d( 0.3, -0.9, 0.0), Eigen::Vector3d( 0.8, -0.65, 0.7))); // right cam
     forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d( 0.3, 0.65, 0.0), Eigen::Vector3d( 0.8, 0.9, 0.7))); // left cam 
-    forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d( 0.5, -0.2, 0.0), Eigen::Vector3d( 0.8, 0.2, 0.6))); // drawer
+    forbidden_obstacles_.push_back(fixed_obb(Eigen::Vector3d( 0.4, -0.2, 0.0), Eigen::Vector3d( 0.8, 0.2, 0.6))); // drawer
 
     // --- NEW: Define Other Robot Link Boxes (Franka FR3 Example) ---
     // NOTE: These are relative to the link frames and must be tuned!
@@ -38,7 +38,7 @@ SafetyLayer::SafetyLayer()
         // Link 5 (Forearm)
         { Eigen::Vector3d(0.0, 0.0, -0.25), Eigen::Vector3d(0.06, 0.06, 0.25), "fr3_link5" },
         // Link 7 (Wrist)
-        { Eigen::Vector3d(0.0, 0.0, 0.05), Eigen::Vector3d(0.05, 0.05, 0.05), "fr3_link7" },
+        { Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d(0.05, 0.05, 0.1), "fr3_link7" },
         // ... add more critical links as needed ...
     };
     current_other_robot_obstacles_.resize(other_robot_link_boxes_.size());
@@ -182,8 +182,11 @@ Eigen::Vector3d SafetyLayer::calculatePushOff(const Eigen::Vector3d& current_pos
         all_obstacles.push_back(&obb);
     }
     // Add dynamic obstacles
-    for (const auto& obb : current_other_robot_obstacles_) {
-        all_obstacles.push_back(&obb);
+    if(other_robot_check)
+    {
+        for (const auto& obb : current_other_robot_obstacles_) {
+            all_obstacles.push_back(&obb);
+        }
     }
 
     // Iterate over all obstacles (fixed AABB converted to OBBs, and dynamic OBBs)
@@ -196,13 +199,14 @@ Eigen::Vector3d SafetyLayer::calculatePushOff(const Eigen::Vector3d& current_pos
 
         // 2. Calculate vector from closest point to current position
         Eigen::Vector3d vector_from_obb = current_position - closest_on_obb;
-        double distance_to_obb_surface = vector_from_obb.norm();
+        double distance_to_obb_surface = vector_from_obb.cwiseAbs().maxCoeff();
         
         // 3. Determine if the current position is inside the INFLATED OBB
-        if (distance_to_obb_surface < safety_distance_)
+        if (distance_to_obb_surface < safety_distance_ - 1e-5)
         {
-            // The required magnitude to exit the safety boundary
-            double required_magnitude_to_boundary = safety_distance_ - distance_to_obb_surface;
+            std::cout << "pos : " << current_position.transpose() << std::endl;
+            std::cout << distance_to_obb_surface << " inside (" << (obb.center+obb.half_extents+Eigen::Vector3d::Constant(safety_distance_)).transpose() << ") (" << (obb.center-obb.half_extents-Eigen::Vector3d::Constant(safety_distance_)).transpose() << ")" << std::endl;
+            std::cout << "closest " << closest_on_obb.transpose() << std::endl;
 
             // --- Critical Face Logic (Adapted to OBB Local Frame) ---
 
@@ -286,13 +290,18 @@ pinocchio::SE3 SafetyLayer::adjustToSafePose(const pinocchio::SE3& robot_pose, c
 {
     // --- NEW: Update Dynamic Obstacles ---
     // Update the other robot's configuration and OBBs
-    const_cast<SafetyLayer*>(this)->transformBoundingBoxes(); 
+    if(other_robot_check)
+    {
+        const_cast<SafetyLayer*>(this)->transformBoundingBoxes(); 
+    }
 
     // 1. Extract desired position and orientation
     Eigen::Vector3d desired_position = desired_pose.translation();
     
     // initial clamp to not work unnessesarry with invalid positions.
     Eigen::Vector3d safe_position = clampToAABB(desired_position);
+
+    std::cout << "init : " << safe_position.transpose() << std::endl;
 
     const int MAX_ITERATIONS = 20;
     Eigen::Vector3d total_push_vector = Eigen::Vector3d::Zero();
@@ -315,6 +324,7 @@ pinocchio::SE3 SafetyLayer::adjustToSafePose(const pinocchio::SE3& robot_pose, c
         {
             std::cout << "iter " << iter << ", pos : " << safe_position.transpose() << std::endl;
             std::cout << "iter " << iter << ", push : " << current_push_off.transpose() << std::endl;
+            std::cout << "iter " << iter << ", pos : " << (safe_position+current_push_off).transpose() << std::endl;
         }
 
         safe_position += current_push_off;
@@ -354,8 +364,11 @@ double SafetyLayer::getShortestDistanceToSafetyBoundary(const Eigen::Vector3d& q
     for (const auto& obb : forbidden_obstacles_) {
         all_obstacles.push_back(&obb);
     }
-    for (const auto& obb : current_other_robot_obstacles_) {
-        all_obstacles.push_back(&obb);
+    if(other_robot_check)
+    {
+        for (const auto& obb : current_other_robot_obstacles_) {
+            all_obstacles.push_back(&obb);
+        }
     }
 
 
@@ -408,6 +421,44 @@ double SafetyLayer::getShortestDistanceToSafetyBoundary(const Eigen::Vector3d& q
     return min_distance_remaining;
 }
 
+// Ray-OBB intersection using slab method in OBB local space
+// Returns +inf if no intersection
+double SafetyLayer::intersectRayOBB(const Eigen::Vector3d& ray_origin, const Eigen::Vector3d& ray_dir, const OBB& obb) const
+{
+    // Transform ray into OBB-local coordinates
+    // rotation is world->local rotation
+    Eigen::Vector3d local_origin = obb.rotation * (ray_origin - obb.center);
+    Eigen::Vector3d local_dir    = obb.rotation * ray_dir;
+
+    const Eigen::Vector3d& h = obb.half_extents;
+
+    double t_min = 0.0;
+    double t_max = std::numeric_limits<double>::infinity();
+
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(local_dir[i]) < 1e-8) {
+            // Ray parallel to slab: must be within slab
+            if (local_origin[i] < -h[i] || local_origin[i] > h[i])
+                return std::numeric_limits<double>::infinity();
+        } else {
+            double t1 = (-h[i] - local_origin[i]) / local_dir[i];
+            double t2 = ( h[i] - local_origin[i]) / local_dir[i];
+
+            if (t1 > t2) std::swap(t1, t2);
+
+            t_min = std::max(t_min, t1);
+            t_max = std::min(t_max, t2);
+
+            if (t_min > t_max)
+                return std::numeric_limits<double>::infinity();
+        }
+    }
+
+    // Hit
+    return (t_min >= 0.0 ? t_min : t_max);
+}
+
+
 double SafetyLayer::getDistanceAlongVelocity(const Eigen::Vector3d& query_position, const Eigen::Vector3d& query_velocity) const
 {
     // WARNING: This function still uses the complex Ray-AABB slab method and is not 
@@ -430,44 +481,13 @@ double SafetyLayer::getDistanceAlongVelocity(const Eigen::Vector3d& query_positi
     // Der Richtungsvektor des Strahls (Einheitsvektor)
     const Eigen::Vector3d ray_direction = query_velocity / velocity_norm;
     
-    // --- 1. Distanz zu Fixed Forbidden Blocks (Using original AABB math) ---
-    for (const auto& obb : forbidden_obstacles_) // Use fixed OBBs, which have Identity rotation (AABB)
+    // --- 1. Distance to Forbidden OBBs (now fully supporting rotation) ---
+    for (const auto& obb : forbidden_obstacles_)
     {
-        // Extract AABB limits from OBB
-        Eigen::Vector3d min_limits = obb.center - obb.half_extents;
-        Eigen::Vector3d max_limits = obb.center + obb.half_extents;
+        double t_hit = intersectRayOBB(query_position, ray_direction, obb);
 
-        // Strahl-AABB-Schnittprüfung (Slab Method)
-        double t_min = 0.0; 
-        double t_max = std::numeric_limits<double>::infinity(); 
-
-        for (int i = 0; i < 3; ++i)
-        {
-            if (std::abs(ray_direction[i]) < 1e-6) 
-            {
-                if (query_position[i] < min_limits[i] || query_position[i] > max_limits[i])
-                {
-                    t_min = std::numeric_limits<double>::infinity(); 
-                    break; 
-                }
-            }
-            else
-            {
-                double t1 = (min_limits[i] - query_position[i]) / ray_direction[i];
-                double t2 = (max_limits[i] - query_position[i]) / ray_direction[i];
-
-                if (t1 > t2) std::swap(t1, t2);
-                
-                t_min = std::max(t_min, t1);
-                t_max = std::min(t_max, t2);
-            }
-        }
-
-        if (t_min <= t_max && t_max >= 0.0)
-        {
-            double t_hit = std::max(0.0, t_min);
+        if (t_hit >= 0.0)
             min_distance_t = std::min(min_distance_t, t_hit);
-        }
     }
     
     // --- 2. Distanz zur äußeren Grenze (Workspace Limits - AABB) ---

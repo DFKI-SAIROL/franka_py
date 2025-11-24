@@ -55,7 +55,7 @@ franka_left:
   use_rviz: "true"
   xyz: "-0.06 0.585 0"
   rpy: "0 0 0"
-  init_joint_position: [-0.8, 0.5, 0.0, -1.3, 0.0, 1.8, 0.8]
+  init_joint_position: [-0.5, 0.0, -0.2, -1.3, 0.0, 1.8, 0.8]
 
 # right franka for dual arm setup
 franka_right:
@@ -65,11 +65,11 @@ franka_right:
   joint_state_rate: 100 
   load_gripper: "false"
   namespace: "franka_right"
-  robot_ip: "192.168.0.2"
+  robot_ip: "192.168.1.2"
   urdf_file: "fr3/fr3.urdf.xacro"
   srdf_file: "fr3/fr3.srdf.xacro"
   use_fake_hardware: "false"
   use_rviz: "false" 
   xyz: "-0.06 -0.585 0"
   rpy: "0 0 0"
-  init_joint_position: [0.8, 0.0, -0.2, -1.3, 0.0, 1.8, 0.0]
+  init_joint_position: [0.5, 0.0, -0.2, -1.3, 0.0, 1.8, 0.2]
