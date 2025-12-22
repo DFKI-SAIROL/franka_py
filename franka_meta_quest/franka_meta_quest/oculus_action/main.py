@@ -32,6 +32,7 @@ class CartesianPosePublisher(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.init_transform = None
 
         self.current_joint_state = JointState()
 
@@ -48,7 +49,7 @@ class CartesianPosePublisher(Node):
 
     def lookup_transform(self):
         try:
-            transform = self.tf_buffer.lookup_transform(self.ns[1:]+'_fr3_link0', self.ns[1:]+'_fr3_link8', rclpy.time.Time(), Duration(seconds=0.1))
+            transform = self.tf_buffer.lookup_transform('base', self.ns[1:]+'_fr3_link8', rclpy.time.Time(), Duration(seconds=0.1))
             translation = np.array([transform.transform.translation.x,
                                    transform.transform.translation.y,
                                    transform.transform.translation.z])
@@ -102,7 +103,7 @@ class CartesianPosePublisher(Node):
 
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = self.ns + '_fr3_link0'
+        msg.header.frame_id = 'base'
         msg.pose.position =  self.to_ros_point(target_pose[0:3])
         msg.pose.orientation = self.to_ros_quat(target_pose[3:7])
         self.publisher_.publish(msg)

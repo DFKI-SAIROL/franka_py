@@ -28,8 +28,8 @@ class VRPolicy:
         max_rot_vel: float = 1.0,
         max_gripper_vel: float = 1,
         spatial_coeff: float = 1,
-        pos_action_gain: float = 3,
-        rot_action_gain: float = 3,
+        pos_action_gain: float = 1,
+        rot_action_gain: float = 1,
         gripper_action_gain: float = 3,
         rmat_reorder: list = [-2, -1, -3, 4],
     ):
@@ -63,7 +63,9 @@ class VRPolicy:
         self.update_sensor = True
         self.reset_origin = True
         self.reset_to_robot = True
+        self.reset_to_init_robot = False
         self.init = True
+        self.robot_init = None
         self.robot_origin = None
         self.vr_origin = None
         self.vr_state = None
@@ -88,6 +90,7 @@ class VRPolicy:
             self.update_sensor = self.update_sensor or buttons[self.controller_id.upper() + "G"]
             self.reset_orientation = self.reset_orientation or buttons[self.controller_id.upper() + "J"]
             self.reset_to_robot = self.reset_to_robot or buttons[self.extended_controller_id + "JS"][1] > 0.5
+            self.reset_to_init_robot = self.reset_to_init_robot or buttons[self.extended_controller_id + "JS"][1] < -0.5
             self.reset_origin = self.reset_origin or toggled
 
             # Save Info #
@@ -100,6 +103,7 @@ class VRPolicy:
             # Update Definition Of "Forward" #
             stop_updating = self._state["buttons"][self.controller_id.upper() + "J"] or self._state["movement_enabled"]
             if self.reset_orientation:
+                print(time.time(), self.extended_controller_id, "reset orientation", flush=True)
                 rot_mat = np.asarray(self._state["poses"][self.controller_id])
                 if stop_updating:
                     self.reset_orientation = False
@@ -107,7 +111,7 @@ class VRPolicy:
                 try:
                     rot_mat = np.linalg.inv(rot_mat)
                 except:
-                    print(time.time(), f"exception for rot mat: {rot_mat}", flush=True)
+                    print(time.time(), self.extended_controller_id, f"exception for rot mat: {rot_mat}", flush=True)
                     rot_mat = np.eye(4)
                     self.reset_orientation = True
                 self.vr_to_global_mat = rot_mat
@@ -147,9 +151,7 @@ class VRPolicy:
 
     def _calculate_action(self, state_dict):
         # Read Sensor #
-        if self.update_sensor:
-            self._process_reading()
-            self.update_sensor = False
+        self._process_reading()
 
         # Read Observation
         robot_pos = np.array(state_dict["cartesian_position"])
@@ -158,7 +160,8 @@ class VRPolicy:
         robot_gripper = state_dict["gripper_position"]
 
         if self.init:
-            print(time.time(), "init", flush=True)
+            print(time.time(), self.extended_controller_id, "init", flush=True)
+            self.robot_init = {"pos": robot_pos, "quat": robot_quat}
             self.robot_origin = {"pos": robot_pos, "quat": robot_quat}
             self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
             self.last_target = {"pos": robot_pos, "quat": robot_quat} 
@@ -167,16 +170,16 @@ class VRPolicy:
         # Reset Origin On Release #
         if self.reset_origin:
             if self._state["movement_enabled"]:
-                print(time.time(), "start movement", flush=True)
+                print(time.time(), self.extended_controller_id, "start movement", flush=True)
                 self.robot_origin = self.last_target
                 self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
             else:
-                print(time.time(), "stop movement", flush=True)  
+                print(time.time(), self.extended_controller_id, "stop movement", flush=True)  
             self.reset_origin = False
 
         if self._vr_state_standstill():
             if self.vr_state != None and self.vr_last_state != None:
-                print(time.time(), "no action detected, meta disconect/calibration?", self.vr_state["pos"], "vs", self.vr_last_state["pos"], flush=True)
+                print(time.time(), self.extended_controller_id, "no action detected, meta disconect/calibration?", self.vr_state["pos"], "vs", self.vr_last_state["pos"], flush=True)
 
         # Calculate Positional Action #
         robot_pos_offset = robot_pos - self.robot_origin["pos"]
@@ -186,8 +189,8 @@ class VRPolicy:
         robot_quat_offset = quat_diff(robot_quat, self.robot_origin["quat"])
         vr_quat_offset = quat_diff(self.vr_state["quat"], self.vr_origin["quat"])
         
-        target_pos = self.robot_origin["pos"] + self.vr_state["pos"] - self.vr_origin["pos"]
-        target_quat = add_quats(self.robot_origin["quat"], quat_diff(self.vr_state["quat"], self.vr_origin["quat"]))
+        target_pos = self.robot_origin["pos"] + self.pos_action_gain * (self.vr_state["pos"] - self.vr_origin["pos"])
+        target_quat = add_quats(self.robot_origin["quat"], self.rot_action_gain * quat_diff(self.vr_state["quat"], self.vr_origin["quat"]))
 
         target_gripper = self.vr_state["gripper"]
 
@@ -196,11 +199,16 @@ class VRPolicy:
             target_quat = self.last_target["quat"]
 
         if self.reset_to_robot:
-            print(time.time(), "reset target to robot", flush=True)
+            print(time.time(), self.extended_controller_id, "reset target to robot", flush=True)
             self.reset_to_robot = False
             target_pos = robot_pos
             target_quat = robot_quat
 
+        if self.reset_to_init_robot:
+            print(time.time(), self.extended_controller_id, "reset target to init robot", flush=True)
+            self.reset_to_init_robot = False
+            target_pos = self.robot_init["pos"]
+            target_quat = self.robot_init["quat"]
 
         # info
         info_dict = {

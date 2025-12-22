@@ -57,9 +57,6 @@
       joint_position_adaptable_controller:
         type: franka_adaptable_controllers/JointPositionAdaptableController
 
-      joint_trajectory_controller:
-        type: joint_trajectory_controller/JointTrajectoryController
-
       franka_joint_trajectory_controller:
         type: franka_joint_trajectory_controller/FrankaJointTrajectoryController
 
@@ -224,7 +221,7 @@
         - fr3_joint7
 
       command_interfaces:
-        - effort
+        - position
 
       state_interfaces:
         - position
@@ -243,33 +240,3 @@
       state_publish_rate: 50.0
       action_monitor_rate: 20.0
 
-
-   
-/**: 
-  joint_trajectory_controller:
-    ros__parameters:
-      command_interfaces:
-        - effort
-      state_interfaces:
-        - position
-        - velocity
-      joints:
-        - fr3_joint1
-        - fr3_joint2
-        - fr3_joint3
-        - fr3_joint4
-        - fr3_joint5
-        - fr3_joint6
-        - fr3_joint7
-      gains:
-        fr3_joint1: { p: 24., d: 2., i: 0., i_clamp: 1. }
-        fr3_joint2: { p: 24., d: 2., i: 0., i_clamp: 1. }
-        fr3_joint3: { p: 24., d: 2., i: 0., i_clamp: 1. }
-        fr3_joint4: { p: 24., d: 1., i: 0., i_clamp: 1. }
-        fr3_joint5: { p: 10., d: 1., i: 0., i_clamp: 1. }
-        fr3_joint6: { p: 6., d: 1., i: 0., i_clamp: 1. }
-        fr3_joint7: { p: 2., d: 0.5, i: 0., i_clamp: 1. }
-
-      interpolate_from_desired_state: true  
-      state_publish_rate: 50.0
-      action_monitor_rate: 20.0
