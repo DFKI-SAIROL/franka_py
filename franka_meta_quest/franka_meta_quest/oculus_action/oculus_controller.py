@@ -26,11 +26,11 @@ class VRPolicy:
         right_controller: bool = True,
         max_lin_vel: float = 0.5,
         max_rot_vel: float = 1.0,
-        max_gripper_vel: float = 1,
-        spatial_coeff: float = 1,
-        pos_action_gain: float = 1,
-        rot_action_gain: float = 1,
-        gripper_action_gain: float = 3,
+        max_gripper_vel: float = 1.0,
+        spatial_coeff: float = 1.0,
+        pos_action_gain: float = 1.0,
+        rot_action_gain: float = 1.0,
+        gripper_action_gain: float = 3.0,
         rmat_reorder: list = [-2, -1, -3, 4],
     ):
         self.oculus_reader = OculusReader()
@@ -51,7 +51,6 @@ class VRPolicy:
         # Start State Listening Thread #
         self.is_running = True
         self.thread = run_threaded_command(self._update_internal_state)
-
 
     def reset_state(self):
         self._state = {
@@ -186,9 +185,25 @@ class VRPolicy:
         vr_pos_offset = self.vr_state["pos"] - self.vr_origin["pos"]
 
         # Calculate Euler Action #
+        # TODO: remove robot_quat_offset, vr_quat_offset
         robot_quat_offset = quat_diff(robot_quat, self.robot_origin["quat"])
         vr_quat_offset = quat_diff(self.vr_state["quat"], self.vr_origin["quat"])
+        # target_quat = add_quats(self.robot_origin["quat"], self.rot_action_gain * quat_diff(self.vr_state["quat"], self.vr_origin["quat"]))
         
+        # Calculate VR Delta in Global Frame: R_delta = R_current * R_origin^-1
+        R_vr_curr = Rotation.from_quat(self.vr_state["quat"])
+        R_vr_orig = Rotation.from_quat(self.vr_origin["quat"])
+        R_delta = R_vr_curr * R_vr_orig.inv()
+
+        # Scale Rotation (Angle-Axis scaling)
+        if self.rot_action_gain != 1.0:
+            rotvec = R_delta.as_rotvec()
+            R_delta = Rotation.from_rotvec(rotvec * self.rot_action_gain)
+
+        # Apply Global Delta to Robot Origin: R_target = R_delta * R_robot_origin
+        R_robot_orig = Rotation.from_quat(self.robot_origin["quat"])
+        target_quat = (R_delta * R_robot_orig).as_quat()
+
         target_pos = self.robot_origin["pos"] + self.pos_action_gain * (self.vr_state["pos"] - self.vr_origin["pos"])
         target_quat = add_quats(self.robot_origin["quat"], self.rot_action_gain * quat_diff(self.vr_state["quat"], self.vr_origin["quat"]))
 
@@ -236,7 +251,6 @@ class VRPolicy:
 
         # Return #
         return np.concatenate([target_pos, target_quat]), target_gripper, info_dict
-        
 
     def get_info(self):
         return {

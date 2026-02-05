@@ -28,7 +28,7 @@ def generate_robot_nodes(context):
             executable='oculus_action_main',
             name='oculus_action_'+item_name,
             namespace=item_name,
-            output='screen'
+            output='screen',
         ))
     return nodes
 

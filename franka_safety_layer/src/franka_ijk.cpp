@@ -43,6 +43,9 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   // Parameters for Initial Position
   this->declare_parameter("init_joint_position", std::vector<double>(7, 0.0));
   std::vector<double> init_joint_position_vec = this->get_parameter("init_joint_position").as_double_array();
+
+  this->declare_parameter("bypass_safety", false);
+  bypass_safety_ = this->get_parameter("bypass_safety").as_bool();
   if (init_joint_position_vec.size() != 7 || std::all_of(init_joint_position_vec.begin(), init_joint_position_vec.end(), [](double x){ return std::abs(x) < 1e-6; }))
   {
     RCLCPP_ERROR(this->get_logger(), "Invalid init joint positions (wrong size or all zeros). Shutting down.");
@@ -60,7 +63,7 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   }
 
   // Load Pinocchio Model
-  if(safety_layer_.other_robot_check)
+  if(safety_layer_.other_robot_check && !bypass_safety_)
   {
     if (!loadOtherPinocchioModel(other_ns)) {
       RCLCPP_FATAL(this->get_logger(), "Failed to load other Pinocchio model. Shutting down.");
@@ -73,8 +76,10 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
     RCLCPP_ERROR(this->get_logger(), "Not loading other Pinocchio model.");
   }
   
+  if (!bypass_safety_) {
   auto init_cartesian = computeForwardKinematic(q_init_).translation();
   safety_layer_.init(init_cartesian, marker_pub_);
+  }
 
   // 5. Setup Control Timer
   timer_ = this->create_wall_timer(std::chrono::duration<double>(TIME_STEP), std::bind(&Franka_IJK::controlLoop, this));
@@ -167,7 +172,9 @@ void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::Share
 void Franka_IJK::otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
   RCLCPP_INFO_ONCE(this->get_logger(), "Other joint cb");
+  if (!bypass_safety_) {
   safety_layer_.other_q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), 7);
+}
 }
 
 
@@ -324,6 +331,8 @@ double Franka_IJK::computeCartesianVelocity(
     desired_cartesian_velocity *= reduction;
   }
 
+  if (!bypass_safety_)
+  {
   double max_safe_v = safety_layer_.getMaxSafeVelocity(current_se3.translation(), desired_cartesian_velocity);
   if (desired_cartesian_velocity.norm() > max_safe_v)
   {
@@ -331,6 +340,7 @@ double Franka_IJK::computeCartesianVelocity(
     target_reachable_factor = 1;
     desired_cartesian_velocity *= reduction;
   } 
+  }
 
   // Apply tolerance to stop movement near target
   if (desired_cartesian_velocity.norm() < 1e-3) {
@@ -395,7 +405,9 @@ void Franka_IJK::controlLoop()
     computeCartesianVelocity(current_se3, current_se3, desired_cartesian_velocity);
     Eigen::VectorXd dq = Eigen::VectorXd::Zero(model_.nv);
     publishDebugInfos(current_se3, current_se3, current_se3, desired_cartesian_velocity, dq);
+    if (!bypass_safety_) {
     safety_layer_.vis_.publish_markers();
+    }
     return;
   }
 
@@ -406,7 +418,15 @@ void Franka_IJK::controlLoop()
 
   pinocchio::SE3 current_se3 = computeForwardKinematic(q_);
 
-  pinocchio::SE3 safe_target_se3 = safety_layer_.adjustToSafePose(current_se3, target_se3_);
+  pinocchio::SE3 safe_target_se3;
+  if (bypass_safety_)
+  {
+      safe_target_se3 = target_se3_;
+  }
+  else
+  {
+      safe_target_se3 = safety_layer_.adjustToSafePose(current_se3, target_se3_);
+  }
 
   // --- 2. Compute Primary Task (Cartesian Error and Velocity) ---
   Eigen::VectorXd desired_cartesian_velocity;
@@ -437,7 +457,9 @@ void Franka_IJK::controlLoop()
 
   publishDebugInfos(current_se3, target_se3_, safe_target_se3, desired_cartesian_velocity, dq);
 
+  if (!bypass_safety_) {
   safety_layer_.vis_.publish_markers();
+}
 }
 
 

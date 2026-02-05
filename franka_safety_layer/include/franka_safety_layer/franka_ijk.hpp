@@ -94,8 +94,8 @@ private:
   Eigen::VectorXd q_init_;     // Initial joint configuration for nullspace posture control
 
   bool use_ik = false;
-  double joint_velocity_limit_ = 0.5; // Max joint velocity in rad/s
-  double cartesian_velocity_limit_ = 0.5; // Max joint velocity in m/s
+  double joint_velocity_limit_ = 1.0; // Max joint velocity in rad/s
+  double cartesian_velocity_limit_ = 1.5; // Max joint velocity in m/s
 
   // Control gains
   const double K_NULL = 1.0;  // Gain for nullspace posture task (Secondary Task)
@@ -104,5 +104,7 @@ private:
   const double TIME_STEP = 1.0 / frequency; // Control loop frequency (15 Hz)
   const double MOTION_TIME_STEP = 1.0 * TIME_STEP; 
   const double FINAL_TIME_STEP = 5 * TIME_STEP;
+
+  bool bypass_safety_ = false;
 
 };

@@ -1,0 +1,22 @@
+node_name: "data_collector"
+logging_rate: 30.0 # Hz
+storage_path: "/home/csil/projects/bimanual/data"
+
+topics:
+  observations:
+    joint_states:
+      topic: "/joint_states"
+      msg_type: "sensor_msgs/msg/JointState"
+    # Example of image topic
+    # camera_image:
+    #   topic: "/camera/image_raw"
+    #   msg_type: "sensor_msgs/msg/Image"
+  actions:
+    # Example: target pose if you were commanding Cartesian
+    # target_pose:
+    #   topic: "/franka/target_pose"
+    #   msg_type: "geometry_msgs/msg/PoseStamped"
+    # For now, let's assume we might just listen to joint states as "action" if strictly observing demo
+    pass:
+      topic: "/joint_states" # Placeholder to make sure we have structure
+      msg_type: "sensor_msgs/msg/JointState"

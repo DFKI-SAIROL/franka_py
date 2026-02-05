@@ -24,6 +24,7 @@ def generate_robot_nodes(context):
     nodes = []
     config_file = LaunchConfiguration('robot_config_file').perform(context)
     configs = load_yaml(config_file)
+    bypass_safety = LaunchConfiguration('bypass_safety').perform(context).lower() == 'true'
 
     spawn_robots = []
     if LaunchConfiguration('spawn_franka_main').perform(context).lower() == 'true':
@@ -47,6 +48,7 @@ def generate_robot_nodes(context):
                         'arm_id': str(config['arm_id']),
                         'arm_prefix': str(config['arm_prefix']),
                         'init_joint_position': config['init_joint_position'],
+                        'bypass_safety': bypass_safety,
                     }],
                     output="screen",
                 )
@@ -79,6 +81,11 @@ def generate_launch_description():
             "spawn_franka_right",
             default_value="true",
             description="Spawn franka right",
+        ),
+        DeclareLaunchArgument(
+            "bypass_safety",
+            default_value="false",
+            description="Bypass safety layer",
         ),
         OpaqueFunction(function=generate_robot_nodes),
     ])
