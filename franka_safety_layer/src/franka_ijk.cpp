@@ -77,8 +77,8 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   }
   
   if (!bypass_safety_) {
-  auto init_cartesian = computeForwardKinematic(q_init_).translation();
-  safety_layer_.init(init_cartesian, marker_pub_);
+    auto init_cartesian = computeForwardKinematic(q_init_).translation();
+    safety_layer_.init(init_cartesian, marker_pub_);
   }
 
   // 5. Setup Control Timer
@@ -173,8 +173,8 @@ void Franka_IJK::otherJointStateCallback(const sensor_msgs::msg::JointState::Sha
 {
   RCLCPP_INFO_ONCE(this->get_logger(), "Other joint cb");
   if (!bypass_safety_) {
-  safety_layer_.other_q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), 7);
-}
+    safety_layer_.other_q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), 7);
+  }
 }
 
 
@@ -333,13 +333,13 @@ double Franka_IJK::computeCartesianVelocity(
 
   if (!bypass_safety_)
   {
-  double max_safe_v = safety_layer_.getMaxSafeVelocity(current_se3.translation(), desired_cartesian_velocity);
-  if (desired_cartesian_velocity.norm() > max_safe_v)
-  {
-    double reduction = max_safe_v / desired_cartesian_velocity.norm();
-    target_reachable_factor = 1;
-    desired_cartesian_velocity *= reduction;
-  } 
+    double max_safe_v = safety_layer_.getMaxSafeVelocity(current_se3.translation(), desired_cartesian_velocity);
+    if (desired_cartesian_velocity.norm() > max_safe_v)
+    {
+      double reduction = max_safe_v / desired_cartesian_velocity.norm();
+      target_reachable_factor = 1;
+      desired_cartesian_velocity *= reduction;
+    } 
   }
 
   // Apply tolerance to stop movement near target
@@ -406,7 +406,7 @@ void Franka_IJK::controlLoop()
     Eigen::VectorXd dq = Eigen::VectorXd::Zero(model_.nv);
     publishDebugInfos(current_se3, current_se3, current_se3, desired_cartesian_velocity, dq);
     if (!bypass_safety_) {
-    safety_layer_.vis_.publish_markers();
+        safety_layer_.vis_.publish_markers();
     }
     return;
   }
@@ -458,8 +458,8 @@ void Franka_IJK::controlLoop()
   publishDebugInfos(current_se3, target_se3_, safe_target_se3, desired_cartesian_velocity, dq);
 
   if (!bypass_safety_) {
-  safety_layer_.vis_.publish_markers();
-}
+      safety_layer_.vis_.publish_markers();
+  }
 }
 
 
