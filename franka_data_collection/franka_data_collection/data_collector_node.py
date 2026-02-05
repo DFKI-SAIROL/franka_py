@@ -78,7 +78,7 @@ class DataCollector(Node):
                 
             # Check if this item is a topic definition (has 'topic' and 'msg_type')
             if 'topic' in items and 'msg_type' in items:
-                self._create_subscriber(category, items) 
+                self._create_subscriber(category, items)
             else:
                 # Recurse
                 for key, val in items.items():
@@ -136,7 +136,6 @@ class DataCollector(Node):
         # Snapshot the latest messages
         with self.latest_msgs_lock:
             snapshot = self.latest_msgs.copy()
-        
         for name, buffer_list in self.data_buffers.items():
             if name in snapshot:
                 msg = snapshot[name]
@@ -157,8 +156,9 @@ class DataCollector(Node):
                 buffer_list.append(None)
 
         # Flush every N steps 
-        if len(list(self.data_buffers.values())[0]) >= 300: 
-            self.flush_to_disk()
+        if len(list(self.data_buffers.values())[0]) >= 300:
+            print("Flushing data to disk...")
+        #     self.flush_to_disk()
 
     def flush_to_disk(self):
         self.get_logger().info('Flushing data to disk...')
@@ -196,10 +196,10 @@ class DataCollector(Node):
             # Clear buffer
             buffer_list.clear()
 
-    def destroy_node(self):
-        # Flush remaining
-        self.flush_to_disk()
-        super().destroy_node()
+    # def destroy_node(self):
+    #     # Flush remaining
+    #     self.flush_to_disk()
+    #     super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)

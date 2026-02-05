@@ -5,7 +5,7 @@ storage_path: "/home/csil/projects/bimanual/data"
 topics:
   observations:
     joint_states:
-      topic: "/joint_states"
+      topic: "/franka_right/joint_states"
       msg_type: "sensor_msgs/msg/JointState"
     # Example of image topic
     # camera_image:
