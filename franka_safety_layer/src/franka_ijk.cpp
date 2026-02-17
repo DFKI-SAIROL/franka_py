@@ -55,6 +55,14 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   q_init_ = Eigen::Map<Eigen::VectorXd>(init_joint_position_vec.data(), 7);
   RCLCPP_INFO(this->get_logger(), "Initial joint position loaded for nullspace control.");
 
+  this->declare_parameter("drift_correction_gain", 1.0);
+  sync_gain_ = this->get_parameter("drift_correction_gain").as_double();
+  
+  this->declare_parameter("dq_filter_gain", 1.0);
+  dq_filter_gain_ = this->get_parameter("dq_filter_gain").as_double();
+
+  RCLCPP_INFO(this->get_logger(), "Virtual State initialized. K_SYNC: %f, K_FILTER: %f", sync_gain_, dq_filter_gain_);
+
   // Load Pinocchio Model
   if (!loadPinocchioModel()) {
     RCLCPP_FATAL(this->get_logger(), "Failed to load Pinocchio model. Shutting down.");
@@ -80,9 +88,6 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
     auto init_cartesian = computeForwardKinematic(q_init_).translation();
     safety_layer_.init(init_cartesian, marker_pub_);
   }
-
-  // 5. Setup Control Timer
-  timer_ = this->create_wall_timer(std::chrono::duration<double>(TIME_STEP), std::bind(&Franka_IJK::controlLoop, this));
 
   RCLCPP_INFO(this->get_logger(), "franka_ijk initialized.");
 }
@@ -165,6 +170,9 @@ void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::Share
   target_se3_.rotation() = q_rot.toRotationMatrix();
 
   RCLCPP_INFO_ONCE(this->get_logger(), "Got and transformed target state");
+  
+  // run the control loop every time when target_cartesian_pose is published
+  controlLoop();
 }
 
 
@@ -355,7 +363,7 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
 {
 
   // 1. Update Kinematics (needed for Jacobian calculation)
-  pinocchio::computeAllTerms(model_, *data_, q_, Eigen::VectorXd::Zero(model_.nv));
+  pinocchio::computeAllTerms(model_, *data_, q_v_, Eigen::VectorXd::Zero(model_.nv));
 
   // 2. Compute the Jacobian matrix (6xN, N=DOF)
   Eigen::MatrixXd J(6, model_.nv);
@@ -374,7 +382,7 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
   Eigen::MatrixXd N = Eigen::MatrixXd::Identity(model_.nv, model_.nv) - J_dagger * J;
 
   // 5.3. Secondary Task Velocity (Posture Control): dq_null_task = K_NULL * (q_init - q_curr)
-  Eigen::VectorXd joint_error_posture = q_init_ - q_;
+  Eigen::VectorXd joint_error_posture = q_init_ - q_v_;
   Eigen::VectorXd dq_null_task = K_NULL * joint_error_posture;
 
   // 5.4. Projected Nullspace Command: dq_null = N * dq_null_task
@@ -386,11 +394,6 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
   return dq;
 }
 
-
-// =================================================================================
-// Control Loop (Main Orchestrator)
-// =================================================================================
-
 void Franka_IJK::controlLoop()
 {
 
@@ -398,9 +401,33 @@ void Franka_IJK::controlLoop()
     return;
   }
 
+  // Initialize Virtual State if needed
+  if (!initialized_v_) {
+    if (q_.size() == model_.nv) {
+      q_v_ = q_;
+      dq_filtered_ = Eigen::VectorXd::Zero(model_.nv);
+      initialized_v_ = true;
+      RCLCPP_INFO(this->get_logger(), "Internal Virtual State Initialized.");
+    } else {
+      return; 
+    }
+  }
+
+  // --- Drift Correction ---
+  // Gently pull virtual state to real state (Leaky Integrator on Position)
+  if (sync_gain_ > 0.0) {
+      q_v_ += sync_gain_ * (q_ - q_v_);
+  }
+
+  // --- 1. Update Kinematics and Dynamics (Gravity) ---
+  // Ensure gravity vector data_->g is updated every cycle for dynamic effort
+  // We use q_v_ for consistency, so gravity compensation is smooth
+  pinocchio::computeGeneralizedGravity(model_, *data_, q_v_);
+
+
   if (target_pose_stamped_.header.stamp.sec == 0) 
   {
-    pinocchio::SE3 current_se3 = computeForwardKinematic(q_);
+    pinocchio::SE3 current_se3 = computeForwardKinematic(q_v_);
     Eigen::VectorXd desired_cartesian_velocity;
     computeCartesianVelocity(current_se3, current_se3, desired_cartesian_velocity);
     Eigen::VectorXd dq = Eigen::VectorXd::Zero(model_.nv);
@@ -415,8 +442,8 @@ void Franka_IJK::controlLoop()
   //if(!tfLookup(arm_prefix_ + "fr3_link0", arm_prefix_ + "fr3_link8", tf_se3)) {
   //  return;
   //}
-
-  pinocchio::SE3 current_se3 = computeForwardKinematic(q_);
+  
+  pinocchio::SE3 current_se3 = computeForwardKinematic(q_v_);
 
   pinocchio::SE3 safe_target_se3;
   if (bypass_safety_)
@@ -441,10 +468,25 @@ void Franka_IJK::controlLoop()
   } 
   else 
   {
-    // --- 3b. Run Jacobian + Nullspace Control (Velocity-based) ---
     // This mode executes the primary Cartesian task and the secondary Posture task.
     dq = runJacobianNullspaceControl(desired_cartesian_velocity);
   }
+
+  // --- 3c. Output Velocity Filtering ---
+  if (first_run_) {
+    dq_filtered_ = dq;
+    first_run_ = false;
+  }
+  else {
+    // Simple Low-Pass Filter on Velocity
+    dq_filtered_ += (dq - dq_filtered_) * dq_filter_gain_;
+  }
+  dq = dq_filtered_;
+
+  // --- 4. Integrate Virtual State ---
+  // This is the core of the "Virtual Robot" approach.
+  // We drive q_v_ with the filtered smooth velocity.
+  q_v_ += dq * TIME_STEP;
   // --- 4. Velocity Limiting 
   double max_dq = dq.array().abs().maxCoeff();
   if (max_dq > joint_velocity_limit_) {
@@ -453,7 +495,7 @@ void Franka_IJK::controlLoop()
   }
 
   // --- 5. Publish Command ---
-  publishCommand(target_reachable_factor, dq);
+  publishCommand(dq);
 
   publishDebugInfos(current_se3, target_se3_, safe_target_se3, desired_cartesian_velocity, dq);
 
@@ -463,11 +505,11 @@ void Franka_IJK::controlLoop()
 }
 
 
-void Franka_IJK::publishCommand(double target_reachable_factor, const Eigen::VectorXd& dq)
+void Franka_IJK::publishCommand(const Eigen::VectorXd& dq)
 {
   auto traj_msg = std::make_unique<trajectory_msgs::msg::JointTrajectory>();
   
-  traj_msg->header.stamp = rclcpp::Time(0, 0);
+  traj_msg->header.stamp = this->get_clock()->now(); // = rclcpp::Time(0, 0);
   traj_msg->joint_names = {
     "fr3_joint1", "fr3_joint2", "fr3_joint3", "fr3_joint4",
     "fr3_joint5", "fr3_joint6", "fr3_joint7"
@@ -484,7 +526,7 @@ void Franka_IJK::publishCommand(double target_reachable_factor, const Eigen::Vec
 
     point.velocities.reserve(model_.nv);
     for (int i = 0; i < model_.nv; ++i) {
-      point.velocities.push_back(0.5 * dq(i));
+      point.velocities.push_back(dq(i));
     }    
     
     // point.accelerations.assign(model_.nv, 0);
@@ -521,8 +563,8 @@ void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &
   debug_msg.actual_pose = convert(current_se3);
   debug_msg.target_pose = convert(target_se3);
   debug_msg.safe_target_pose = convert(safe_target_se3);
-  debug_msg.cmd_pose = convert(computeForwardKinematic(q_ + dq * MOTION_TIME_STEP));
-  debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_ + dq * FINAL_TIME_STEP));
+  debug_msg.cmd_pose = convert(computeForwardKinematic(q_v_ + dq * MOTION_TIME_STEP));
+  debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_v_ + dq * FINAL_TIME_STEP));
   debug_msg.cartesian_velocity = convert(desired_cartesian_velocity);
 
   debug_msg.safety_distance = safety_layer_.current_distance_to_obstacle;

@@ -45,14 +45,14 @@ franka_left:
   arm_id: "fr3"
   arm_prefix: "franka_left"
   fake_sensor_commands: "false"
-  joint_state_rate: 100
+  joint_state_rate: 1000
   load_gripper: "false"
   namespace: "franka_left"
   robot_ip: "192.168.1.4"
   urdf_file: "fr3/fr3.urdf.xacro"
   srdf_file: "fr3/fr3.srdf.xacro"
   use_fake_hardware: "false"
-  use_rviz: "true"
+  use_rviz: "false"
   xyz: "-0.06 0.585 0"
   rpy: "0 0 0"
   init_joint_position: [-0.5, 0.0, 0.0, -1.507, 0.0, 1.507, -0.5]
@@ -62,14 +62,14 @@ franka_right:
   arm_id: "fr3"
   arm_prefix: "franka_right"
   fake_sensor_commands: "false"
-  joint_state_rate: 100 
+  joint_state_rate: 1000 
   load_gripper: "false"
   namespace: "franka_right"
   robot_ip: "192.168.0.2"
   urdf_file: "fr3/fr3.urdf.xacro"
   srdf_file: "fr3/fr3.srdf.xacro"
   use_fake_hardware: "false"
-  use_rviz: "false" 
+  use_rviz: "true" 
   xyz: "-0.06 -0.585 0"
   rpy: "0 0 0"
   init_joint_position: [0.5, 0.0, 0.0, -1.507, 0.0, 1.507, 0.5]

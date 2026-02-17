@@ -221,13 +221,20 @@
         - fr3_joint7
 
       command_interfaces:
-        - position
+        - effort
 
       state_interfaces:
         - position
         - velocity
 
       gains:
+        # fr3_joint1: { p: 300., d: 25., i: 0., i_clamp: 1. }
+        # fr3_joint2: { p: 300., d: 25., i: 0., i_clamp: 1. }
+        # fr3_joint3: { p: 300., d: 25., i: 0., i_clamp: 1. }
+        # fr3_joint4: { p: 300., d: 25., i: 0., i_clamp: 1. }
+        # fr3_joint5: { p: 175., d: 15., i: 0., i_clamp: 1. }
+        # fr3_joint6: { p: 75., d: 10., i: 0., i_clamp: 1. }
+        # fr3_joint7: { p:  25., d:  6., i: 0., i_clamp: 1. }
         fr3_joint1: { p: 600., d: 30., i: 0., i_clamp: 1. }
         fr3_joint2: { p: 600., d: 30., i: 0., i_clamp: 1. }
         fr3_joint3: { p: 600., d: 30., i: 0., i_clamp: 1. }
@@ -236,7 +243,11 @@
         fr3_joint6: { p: 150., d: 10., i: 0., i_clamp: 1. }
         fr3_joint7: { p:  50., d:  5., i: 0., i_clamp: 1. }
 
-      interpolate_from_desired_state: true  
-      state_publish_rate: 50.0
-      action_monitor_rate: 20.0
+      interpolate_from_desired_state: true
+      # interpolation_method: splines
 
+      constraints:
+        goal_time: 0.0
+
+      state_publish_rate: 1000.0
+      action_monitor_rate: 100.0
