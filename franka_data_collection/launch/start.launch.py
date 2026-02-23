@@ -18,7 +18,7 @@ def generate_data_collector_node(context):
         executable='data_collector_main',
         name='data_collector',
         output='screen',
-        parameters=[{'config_path': config_path}]
+        parameters=[{'config_path': config_path}],
     ))
     return nodes
 

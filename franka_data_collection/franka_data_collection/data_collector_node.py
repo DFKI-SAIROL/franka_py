@@ -1,3 +1,4 @@
+import functools
 import importlib
 import os
 import time
@@ -10,11 +11,12 @@ from rclpy.node import Node
 from rclpy.serialization import serialize_message
 import yaml
 import numpy as np
+from std_srvs.srv import Trigger
 
-try:
-    from .handlers import get_handler
-except:
-    from franka_data_collection.handlers import get_handler
+# Import message types for _process_msg
+from sensor_msgs.msg import JointState, Image
+from geometry_msgs.msg import PoseStamped
+# from fmq_msgs.msg import FMQDebug # Will be added in a later step
 
 # Helper to get nested recursive dict
 def recursive_dict_update(d, u):
@@ -46,29 +48,97 @@ class DataCollector(Node):
         self.logging_rate = self.config.get('logging_rate', 30.0)
         self.storage_path = Path(self.config.get('storage_path', './data'))
         
-        # Create storage directory for this episode
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.episode_path = self.storage_path / f'episode_{timestamp}'
-        self.episode_path.mkdir(parents=True, exist_ok=True)
-        self.get_logger().info(f'Logging to: {self.episode_path}')
+        # State
+        self.is_recording = False
+        self.episode_path = None
+        self.teleop_input = False
+        
+        # Trigger config
+        self.trigger_topic_name = "target_cartesian_pose" 
+        self.has_trigger_topic = False
+        self.trigger_logical_name = None 
 
-        # Storage for latest messages: {logical_name: msg}
-        self.latest_msgs = {}
-        self.latest_msgs_lock = threading.Lock()
+        self.get_logger().info(f'Data collector ready. Service based recording.')
+
+        # Storage for latest PROCESSED data: {logical_name: data_dict}
+        self.latest_data = {}
+        self.latest_data_lock = threading.Lock()
         
         # Buffers for saving: {logical_name: [list_of_data]}
         self.data_buffers = {}
         
-        # Handlers: {logical_name: handler_instance}
-        self.handlers = {}
+        # Config for fields extraction: {logical_name: [fields]}
+        self.topic_fields = {}
 
         # Setup subscribers
         self.subs = []
         self._setup_topics(self.config.get('topics', {}))
+        
+        # Setup Services
+        self.srv_start = self.create_service(Trigger, '~/record_data_trigger', self.recording_callback)
+        # self.srv_stop = self.create_service(Trigger, '~/stop_recording', self.stop_recording_callback)
 
-        # Setup timer for sampling
-        self.timer = self.create_timer(1.0 / self.logging_rate, self.sampling_callback)
-        self.get_logger().info(f'Data collector started at {self.logging_rate} Hz')
+        # Scan for trigger
+        self._scan_for_trigger(self.config.get('topics', {}))
+        
+        if self.has_trigger_topic:
+            self.get_logger().info(f"Event-driven mode: Triggered by *{self.trigger_topic_name} (logical name: {self.trigger_logical_name})")
+            # Do NOT create timer
+        else:
+            # Fallback to timer
+            self.timer = self.create_timer(1.0 / self.logging_rate, self.sampling_callback)
+            self.get_logger().info(f'Data collector timer running at {self.logging_rate} Hz')
+
+    def start_recording(self):
+
+        # Create storage directory for this episode
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.episode_path = self.storage_path / f'episode_{timestamp}'
+        self.episode_path.mkdir(parents=True, exist_ok=True)
+        self.get_logger().info(f'Started recording to: {self.episode_path}')
+        
+        # Clear buffers just in case
+        for name in self.data_buffers:
+            self.data_buffers[name] = []
+            
+        self.is_recording = True
+        return True, f"Started recording to {self.episode_path}"
+
+    def stop_recording(self):           
+        self.is_recording = False
+        self.get_logger().info("Stopped recording. Flushing data...")
+        self.flush_to_disk()
+        return True, "Stopped recording and saved data."
+
+    def recording_callback(self, request, response):
+        if not self.is_recording:
+            success, message = self.start_recording()
+        else:
+            success, message = self.stop_recording()
+
+        response.success = success
+        response.message = message
+        return response
+
+    def stop_recording_callback(self, request, response):
+        success, message = self.stop_recording()
+        response.success = success
+        response.message = message
+        return response
+
+    def _scan_for_trigger(self, topics_config, parent_logical_name=None):
+        for logical_name, items in topics_config.items():
+            current_logical_name = logical_name # if parent_logical_name is None else f"{parent_logical_name}.{logical_name}"
+            if isinstance(items, dict):
+                 if 'topic' in items:
+                     if items['topic'].endswith(self.trigger_topic_name):
+                         self.has_trigger_topic = True
+                         self.trigger_logical_name = current_logical_name
+                         return # Found it, no need to search further
+                 else:
+                     self._scan_for_trigger(items, current_logical_name)
+                     if self.has_trigger_topic: # If found in recursion, propagate stop
+                         return
 
     def _setup_topics(self, topics_config):
         """Recursively flush out topics configuration"""
@@ -90,6 +160,9 @@ class DataCollector(Node):
         msg_type_str = cfg['msg_type']
         fields = cfg.get('fields', None)
         
+        if fields:
+            self.topic_fields[logical_name] = fields
+
         # Import message type
         try:
             parts = msg_type_str.split('/')
@@ -112,60 +185,106 @@ class DataCollector(Node):
         # Initialize buffer list
         self.data_buffers[logical_name] = []
         
-        # Set up handler
-        handler = get_handler(msg_type_str, fields)
-        if handler:
-            self.handlers[logical_name] = handler
-        else:
-            self.get_logger().warn(f'No specific handler for {msg_type_str}, saving raw objects (might fail pickle)')
-            self.handlers[logical_name] = None
-
         sub = self.create_subscription(
             msg_class,
             topic_name,
-            lambda msg, name=logical_name: self.topic_callback(msg, name),
+            lambda msg, name=logical_name: self._topic_callback(msg, name),
             10
         )
         self.subs.append(sub)
 
-    def topic_callback(self, msg, logical_name):
-        with self.latest_msgs_lock:
-            self.latest_msgs[logical_name] = msg
+    def _topic_callback(self, msg, logical_name):
+        # Dispatch processing (and potentially triggering)
+        self._process_msg(msg, logical_name)
+
+    @functools.singledispatchmethod
+    def _process_msg(self, msg, logical_name):
+        """Base handler for unknown message types"""
+        with self.latest_data_lock:
+            self.latest_data[logical_name] = msg
+
+    @_process_msg.register
+    def _(self, msg: JointState, logical_name):
+        data = {}
+        fields = self.topic_fields.get(logical_name, ['position', 'velocity', 'effort'])
+        for field in fields:
+            if hasattr(msg, field):
+                data[field] = np.array(getattr(msg, field), dtype=np.float64)
+        
+        with self.latest_data_lock:
+            self.latest_data[logical_name] = data
+
+    @_process_msg.register
+    def _(self, msg: PoseStamped, logical_name):
+        data = {}
+        fields = self.topic_fields.get(logical_name, ['position', 'orientation'])
+        
+        if 'position' in fields:
+            data['position'] = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z], dtype=np.float64)
+        if 'orientation' in fields:
+            data['orientation'] = np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w], dtype=np.float64)
+        
+        with self.latest_data_lock:
+            self.latest_data[logical_name] = data
+
+        # Check for Trigger
+        if self.has_trigger_topic and logical_name == self.trigger_logical_name:
+             self.teleop_input = True
+             self.sampling_callback()
+
+    @_process_msg.register
+    def _(self, msg: Image, logical_name):
+        # Basic Image extraction
+        dtype = np.uint8
+        if '16UC1' in msg.encoding:
+            dtype = np.uint16
+        elif '32FC1' in msg.encoding:
+            dtype = np.float32
+            
+        arr = np.frombuffer(msg.data, dtype=dtype)
+        
+        try:
+             # Try simple reshape if possible, else return flat
+             channels = 1
+             if 'rgb' in msg.encoding or 'bgr' in msg.encoding:
+                 channels = 3
+             elif 'rgba' in msg.encoding or 'bgra' in msg.encoding:
+                 channels = 4
+             arr = arr.reshape((msg.height, msg.width, channels))
+        except:
+             pass
+             
+        with self.latest_data_lock:
+            self.latest_data[logical_name] = {'image': arr}
 
     def sampling_callback(self):
-        # Snapshot the latest messages
-        with self.latest_msgs_lock:
-            snapshot = self.latest_msgs.copy()
+        if not self.is_recording:
+            return
+
+        # If event driven, we ONLY record if teleop_input is true
+        if self.has_trigger_topic:
+            if not self.teleop_input:
+                return
+            # Reset flag immediately
+            self.teleop_input = False
+
+        # Snapshot the latest data
+        with self.latest_data_lock:
+            snapshot = self.latest_data.copy()
+            
         for name, buffer_list in self.data_buffers.items():
             if name in snapshot:
-                msg = snapshot[name]
-                handler = self.handlers.get(name)
-                
-                if handler:
-                    # Extract structured data
-                    try:
-                        data = handler.extract(msg)
-                        buffer_list.append(data)
-                    except Exception as e:
-                        # self.get_logger().warn(f"Extraction failed for {name}: {e}")
-                        buffer_list.append(None)
-                else:
-                    # Fallback to raw object
-                    buffer_list.append(msg)
+                data = snapshot[name]
+                buffer_list.append(data)
             else:
                 buffer_list.append(None)
-
-        # Flush every N steps 
-        if len(list(self.data_buffers.values())[0]) >= 300:
-            print("Flushing data to disk...")
-        #     self.flush_to_disk()
 
     def flush_to_disk(self):
         self.get_logger().info('Flushing data to disk...')
         for name, buffer_list in self.data_buffers.items():
             if not buffer_list:
                 continue
-
+            
             chunk_id = len(list(self.episode_path.glob(f'{name}_*.npy'))) 
             save_path = self.episode_path / f'{name}_{chunk_id:04d}.npy'
             
@@ -186,20 +305,15 @@ class DataCollector(Node):
                             # Fallback to object array
                             stacked[k] = np.array(vals, dtype=object)
                     
-                    np.save(save_path, stacked, allow_pickle=True)
+                    np.save(save_path, stacked)
                 else:
                     # Fallback
-                    np.save(save_path, np.array(buffer_list, dtype=object), allow_pickle=True)
+                    np.save(save_path, np.array(buffer_list, dtype=object))
             except Exception as e:
                 self.get_logger().error(f'Failed to save {name}: {e}')
             
             # Clear buffer
             buffer_list.clear()
-
-    # def destroy_node(self):
-    #     # Flush remaining
-    #     self.flush_to_disk()
-    #     super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
