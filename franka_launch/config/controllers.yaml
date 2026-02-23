@@ -54,6 +54,9 @@
       move_to_start_example_controller:
         type: franka_example_controllers/MoveToStartExampleController
 
+      cartesian_impedance_controller:
+        type: crisp_controllers/CartesianController
+
       joint_position_adaptable_controller:
         type: franka_adaptable_controllers/JointPositionAdaptableController
 
@@ -228,13 +231,6 @@
         - velocity
 
       gains:
-        # fr3_joint1: { p: 300., d: 25., i: 0., i_clamp: 1. }
-        # fr3_joint2: { p: 300., d: 25., i: 0., i_clamp: 1. }
-        # fr3_joint3: { p: 300., d: 25., i: 0., i_clamp: 1. }
-        # fr3_joint4: { p: 300., d: 25., i: 0., i_clamp: 1. }
-        # fr3_joint5: { p: 175., d: 15., i: 0., i_clamp: 1. }
-        # fr3_joint6: { p: 75., d: 10., i: 0., i_clamp: 1. }
-        # fr3_joint7: { p:  25., d:  6., i: 0., i_clamp: 1. }
         fr3_joint1: { p: 600., d: 30., i: 0., i_clamp: 1. }
         fr3_joint2: { p: 600., d: 30., i: 0., i_clamp: 1. }
         fr3_joint3: { p: 600., d: 30., i: 0., i_clamp: 1. }
@@ -251,3 +247,38 @@
 
       state_publish_rate: 1000.0
       action_monitor_rate: 100.0
+
+/**:
+  cartesian_impedance_controller:
+    ros__parameters:
+      joints:
+        - fr3_joint1
+        - fr3_joint2
+        - fr3_joint3
+        - fr3_joint4
+        - fr3_joint5
+        - fr3_joint6
+        - fr3_joint7
+
+      end_effector_frame: fr3_hand_tcp
+      base_frame: base
+
+      filter:
+        q: 0.5
+        dq: 0.5
+        output_torque: 0.5
+
+      task:
+        k_pos_x: 400.0
+        k_pos_y: 400.0
+        k_pos_z: 400.0
+        k_rot_x: 30.0
+        k_rot_y: 30.0
+        k_rot_z: 30.0
+
+      nullspace: 
+        stiffness: 2.0
+
+      use_friction: false
+      use_coriolis_compensation: true
+      use_local_jacobian: true

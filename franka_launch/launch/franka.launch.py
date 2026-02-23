@@ -1,126 +1,72 @@
 #  Copyright (c) 2025 Franka Robotics GmbH
-#
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-
-############################################################################
-# Parameters:
-# arm_id: ID of the type of arm used (default: '')
-# arm_prefix: Prefix for arm topics (default: '')
-# namespace: Namespace for the robot (default: '')
-# urdf_file: URDF file path relative to franka_description/robots (default: 'fr3/fr3.urdf.xacro')
-# robot_ip: Hostname or IP address of the robot (default: '172.16.0.3')
-# load_gripper: Use Franka Gripper as an end-effector (default: 'false')
-# use_fake_hardware: Use fake hardware (default: 'false')
-# fake_sensor_commands: Fake sensor commands (default: 'false')
-# joint_state_rate: Rate for joint state publishing in Hz (default: '30')
-#
-# The franka.launch.py launch file provides a robust and flexible interface
-# for launching core Franka Robotics components, including robot_state_publisher,
-# ros2_control_node, joint_state_publisher, joint_state_broadcaster,
-# franka_robot_state_broadcaster, and optionally franka_gripper, with support
-# for both namespaced and non-namespaced environments.
-# Example:
-# ros2 launch franka_launch franka.launch.py arm_id:=fr3 namespace:=NS1 robot_ip:=172.16.0.3
-
-# This is an error prone commandline, you may prefer to write the parameters into a YAML file like:
-#   franka_launch/config/franka.config.yaml
-# That is especially useful if you want to use multiple namespaces.
-# In that case, it's not possible to specify the parameters on the command line,
-# since each parameter would have to be somehow isolated or prefixed by the namespace.
-# then later parsed by the launch file.
-# See: example.launch.py for more details.
-#
-# You may wish to experiment with the namespace parameter to see how it affects topic names
-# and service names. The default namespace is empty, which means that the
-# topics and services are not namespaced. If you set the namespace to 'franka1',
-# the topics and services will be namespaced with 'franka1'. For example, the
-# joint_state_publisher will publish to '/franka1/joint_states' instead of '/joint_states'.
-# and the controller_manager will look for the controllers in the 'franka1' namespace.
-# To see the difference you can run the following command:
-#   ros2 topic list | grep joint_states
-#   ros2 service list | grep controller_manager
-# This becomes usefull for example when you require multiple Franka robots doing
-# possibly different but related tasks. So, you might have the "PICK" and "PLACE" robots
-# in the same workspace, but they are not supposed to interfere with each other.
-#
-# This script generates a URDF file using the specified xacro file to configure the robot
-# description and integrates with controllers.yaml for controller management.
-# It is designed to be called (included) by higher-level launch files, such as example.launch.py,
-# which will, by default, rely upon franka.config.yaml for robot-specific parameters.
-# RViz is not launched by this script but can be included by higher-level launch files
-# if use_rviz is enabled. Ensure urdf_file parameter (a xacro file) exists in
-# franka_description/robots to avoid runtime errors.
-#
-# This approach improves upon earlier launch scripts, which often lacked namespace
-# support and were less modular, offering a more consistent and maintainable solution.
-# While some may prefer the older scripts for their simplicity in specific scenarios,
-# franka.launch.py enhances flexibility and scalability for diverse Franka Robotics
-# applications.
+#  Modified for Dynamic Configuration Architecture
 ############################################################################
 
-
+import os
+import yaml
 import xacro
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.actions import OpaqueFunction, Shutdown
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, Shutdown
 from launch.conditions import UnlessCondition, IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-# Generates the "default" nodes (controller_manager, robot_state_publisher, etc.)
-# for the Franka robot. This function is called by the main launch file.
-# It uses the xacro library to process the URDF file and generate the robot description.
-
 
 def generate_robot_nodes(context):
-    load_gripper_launch_configuration = LaunchConfiguration('load_gripper').perform(context)
-    load_gripper = load_gripper_launch_configuration.lower() == 'true'
+    robot_config_name = LaunchConfiguration('robot_config').perform(context)
+    if not robot_config_name.endswith('.yaml'):
+        robot_config_name += '.yaml'
+        
+    yaml_path = os.path.join(
+        get_package_share_directory('franka_robot_description'),
+        'config',
+        robot_config_name,
+    )
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f"Robot config file not found: {yaml_path}")
+        
+    with open(yaml_path, 'r') as f:
+        y_config = yaml.safe_load(f)
+        
+    robot_config = y_config.get('robot_config', {})
+    urdf_file_name = robot_config.get('urdf_file', 'robots/fr3/fr3.urdf.xacro')
+    gripper_type = robot_config.get('gripper_type', 'none')
+    xyz = robot_config.get('xyz', '0 0 0')
+    rpy = robot_config.get('rpy', '0 0 0')
+    arm_prefix = robot_config.get('arm_prefix', '')
+    arm_id = robot_config.get('arm_id', 'fr3')
+    srdf_file_name = robot_config.get('srdf_file', 'fr3/fr3.srdf.xacro')
+
+    arm_controller = robot_config.get('arm_controller', 'cartesian_impedance_controller')
+    gripper_controller = robot_config.get('gripper_controller', None)
+
+    load_franka_gripper = gripper_type == 'franka_default'
     use_fake_hardware_launch_configuration = LaunchConfiguration('use_fake_hardware').perform(context)
     use_fake_hardware = use_fake_hardware_launch_configuration.lower() == 'true'
-    arm_id = LaunchConfiguration('arm_id').perform(context)
-    arm_prefix = LaunchConfiguration('arm_prefix').perform(context)
 
     urdf_path = PathJoinSubstitution([
-        FindPackageShare('franka_description'), 'robots', LaunchConfiguration('urdf_file')
+        FindPackageShare('franka_robot_description'), 'urdf', urdf_file_name
     ]).perform(context)
-    robot_description = xacro.process_file(
-        urdf_path,
-        mappings={
-            'ros2_control': 'true',
-            'arm_id': LaunchConfiguration('arm_id').perform(context),
-            'arm_prefix': LaunchConfiguration('arm_prefix').perform(context),
-            'robot_ip': LaunchConfiguration('robot_ip').perform(context),
-            'hand': load_gripper_launch_configuration,
-            'use_fake_hardware': LaunchConfiguration('use_fake_hardware').perform(context),
-            'fake_sensor_commands': LaunchConfiguration('fake_sensor_commands').perform(context),
-            'xyz': LaunchConfiguration('xyz').perform(context),
-            'rpy': LaunchConfiguration('rpy').perform(context),
-        }
-    ).toprettyxml(indent='  ')
+    
+    # Base mappings shared across all URDF instantiations
+    base_mappings = {
+        'arm_id': arm_id,
+        'arm_prefix': arm_prefix,
+        'robot_ip': LaunchConfiguration('robot_ip').perform(context),
+        'hand': 'true' if load_franka_gripper else 'false',
+        'gripper_type': gripper_type,
+        'use_fake_hardware': LaunchConfiguration('use_fake_hardware').perform(context),
+        'xyz': xyz,
+        'rpy': rpy,
+    }
 
-    srdf_path = PathJoinSubstitution([
-        FindPackageShare('franka_description'), 'robots', LaunchConfiguration('srdf_file')
-    ]).perform(context)
-    robot_description_semantic = xacro.process_file(
-        srdf_path,
-        mappings={
-            'arm_id': LaunchConfiguration('arm_id').perform(context),
-            'arm_prefix': LaunchConfiguration('arm_prefix').perform(context),
-            'hand': load_gripper_launch_configuration,
-        }
-    ).toprettyxml(indent='  ')
+    # Unified URDF (Franka HW Active, Dynamixel HW Disabled for decoupled control)
+    urdf_mappings = base_mappings.copy()
+    urdf_mappings.update({'ros2_control': 'true', 'gripper_ros2_control': 'false'})
+    robot_description = xacro.process_file(urdf_path, mappings=urdf_mappings).toprettyxml(indent='  ')
 
     namespace = LaunchConfiguration('namespace').perform(context)
     controllers_yaml = PathJoinSubstitution([
@@ -128,7 +74,37 @@ def generate_robot_nodes(context):
     ]).perform(context)
 
     joint_state_publisher_sources = ['franka/joint_states', 'franka_gripper/joint_states']
-    joint_state_rate = int(LaunchConfiguration('joint_state_rate').perform(context))
+
+    cm_params = {
+        'robot_description': robot_description,
+        'load_gripper': load_franka_gripper,
+        'use_fake_hardware': use_fake_hardware,
+        'arm_id': arm_id,
+        'arm_prefix': arm_prefix,
+    }
+
+    import tempfile
+    joints_list = [f'{arm_prefix}_{arm_id}_joint{i}' if arm_prefix else f'{arm_id}_joint{i}' for i in range(1, 8)]
+    
+    controller_params = {
+        f'{namespace}': {
+            f'{arm_controller}': {
+                'ros__parameters': {
+                    'joints': joints_list
+                }
+            }
+        }
+    }
+
+    end_effector_frame = LaunchConfiguration('end_effector_frame').perform(context)
+    if end_effector_frame:
+        controller_params[namespace][arm_controller]['ros__parameters']['end_effector_frame'] = end_effector_frame
+        
+    # Write to a temporary file because passing nested dicts directly to Node `parameters` 
+    # doesn't work well for controller_manager uninitialized parameter checks
+    param_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml')
+    yaml.dump(controller_params, param_file)
+    param_file.close()
 
     nodes = [
         Node(
@@ -138,20 +114,20 @@ def generate_robot_nodes(context):
             parameters=[{'robot_description': robot_description}],
             output='screen',
         ),
+        # Arm Controller Manager (1000Hz)
         Node(
             package='controller_manager',
             executable='ros2_control_node',
             namespace=namespace,
             parameters=[
                 controllers_yaml,
-                {
-                    'load_gripper': load_gripper,
-                    'use_fake_hardware': use_fake_hardware,
-                    'arm_id': arm_id,
-                    'arm_prefix': arm_prefix
-                }
+                cm_params,
+                param_file.name
             ],
-            remappings=[('joint_states', joint_state_publisher_sources[0])],
+            remappings=[
+                ('~/robot_description', 'robot_description'),
+                ('joint_states', joint_state_publisher_sources[0])
+            ],
             output='screen',
             on_exit=Shutdown(),
         ),
@@ -161,9 +137,9 @@ def generate_robot_nodes(context):
             name='joint_state_publisher',
             namespace=namespace,
             parameters=[{
+                'robot_description': robot_description,
                 'source_list': joint_state_publisher_sources,
-                'rate': joint_state_rate,
-                'use_robot_description': False,
+                'rate': 1000,
             }],
             output='screen',
         ),
@@ -179,63 +155,66 @@ def generate_robot_nodes(context):
             executable='spawner',
             namespace=namespace,
             arguments=['franka_robot_state_broadcaster'],
-            parameters=[{'arm_id': LaunchConfiguration('arm_id').perform(context)}],
+            parameters=[{'arm_id': arm_id}],
             condition=UnlessCondition(LaunchConfiguration('use_fake_hardware')),
             output='screen',
         ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([PathJoinSubstitution(
-                [FindPackageShare('franka_gripper'), 'launch', 'gripper.launch.py'])]),
-            launch_arguments={
-                'namespace': namespace,
-                'robot_ip': LaunchConfiguration('robot_ip').perform(context),
-                'use_fake_hardware': LaunchConfiguration('use_fake_hardware').perform(context),
-            }.items(),
-            condition=IfCondition(LaunchConfiguration('load_gripper')),
-        ),
     ]
 
-    return nodes
+    arm_spawner_args = [
+        arm_controller,
+        '-c', f'/{namespace}/controller_manager',
+        '--controller-manager-timeout', '30',
+        '--ros-args', '-p', 
+        f"joints:=[{','.join([f'{arm_prefix}_{arm_id}_joint{i}' if arm_prefix else f'{arm_id}_joint{i}' for i in range(1, 8)])}]"
+    ]
 
-# The generate_launch_description function is the entry point (like "main")
-# We use it to declare the launch arguments and call the generate_robot_nodes function.
+    if end_effector_frame:
+        arm_spawner_args.extend(['-p', f"end_effector_frame:={end_effector_frame}"])
+
+    nodes.append(Node(
+        package='controller_manager',
+        executable='spawner',
+        namespace=namespace,
+        arguments=arm_spawner_args,
+        output='screen',
+    ))
+
+    nodes.append(IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([PathJoinSubstitution(
+            [FindPackageShare('franka_launch'), 'launch', 'gripper.launch.py'])]),
+        launch_arguments={
+            'gripper_type': gripper_type,
+            'urdf_file': urdf_file_name,
+            'arm_id': arm_id,
+            'arm_prefix': arm_prefix,
+            'namespace': namespace,
+            'robot_ip': LaunchConfiguration('robot_ip').perform(context),
+            'use_fake_hardware': LaunchConfiguration('use_fake_hardware').perform(context),
+        }.items(),
+        condition=UnlessCondition('true' if gripper_type == 'none' else 'false'),
+    ))
+
+    return nodes
 
 
 def generate_launch_description():
     launch_args = [
-        DeclareLaunchArgument('arm_id',
-                              default_value='',
-                              description='ID of the type of arm used'),
-        DeclareLaunchArgument('arm_prefix',
-                              default_value='',
-                              description='Prefix for arm topics'),
+        DeclareLaunchArgument('robot_config',
+                              default_value='fr3',
+                              description='Name of the robot config yaml in franka_robot_description'),
         DeclareLaunchArgument('namespace',
                               default_value='',
                               description='Namespace for the robot'),
-        DeclareLaunchArgument('urdf_file',
-                              default_value='fr3/fr3.urdf.xacro',
-                              description='Path to URDF file'),
         DeclareLaunchArgument('robot_ip',
                               default_value='172.16.0.3',
                               description='Hostname or IP address of the robot'),
-        DeclareLaunchArgument('load_gripper',
-                              default_value='false',
-                              description='Use Franka Gripper as an end-effector'),
         DeclareLaunchArgument('use_fake_hardware',
                               default_value='false',
                               description='Use fake hardware'),
-        DeclareLaunchArgument('fake_sensor_commands',
-                              default_value='false',
-                              description='Fake sensor commands'),
-        DeclareLaunchArgument('joint_state_rate',
-                              default_value='100',
-                              description='Rate for joint state publishing (Hz)'),
-        DeclareLaunchArgument('xyz',
-                              default_value='[0, 0, 0]',
-                              description='Robot offset from world'),
-        DeclareLaunchArgument('rpy',
-                              default_value='[0, 0, 0]',
-                              description='Robot offset from world'),
+        DeclareLaunchArgument('end_effector_frame',
+                              default_value='',
+                              description='End effector frame for cartesian impedance controller'),
     ]
 
     return LaunchDescription(launch_args + [OpaqueFunction(function=generate_robot_nodes)])
