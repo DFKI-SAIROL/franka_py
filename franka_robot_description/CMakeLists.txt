@@ -20,7 +20,7 @@ find_package(ament_cmake REQUIRED)
 ################################################################################
 # Install
 ################################################################################
-install(DIRECTORY launch config meshes urdf rviz
+install(DIRECTORY launch config meshes urdf rviz robots
   DESTINATION share/${PROJECT_NAME}
 )
 
