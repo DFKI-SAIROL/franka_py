@@ -36,7 +36,7 @@ def get_robot_description(context: LaunchContext, arm_id, load_gripper, franka_h
     franka_hand_str = context.perform_substitution(franka_hand)
 
     franka_xacro_file = os.path.join(
-        get_package_share_directory('franka_description'),
+        get_package_share_directory('franka_robot_description'),
         'robots',
         arm_id_str,
         arm_id_str + '.urdf.xacro'
@@ -104,7 +104,7 @@ def generate_launch_description():
         args=[arm_id, load_gripper, franka_hand])
 
     # Gazebo Sim
-    os.environ['GZ_SIM_RESOURCE_PATH'] = os.path.dirname(get_package_share_directory('franka_description'))
+    os.environ['GZ_SIM_RESOURCE_PATH'] = os.path.dirname(get_package_share_directory('franka_robot_description'))
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
     gazebo_empty_world = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -122,7 +122,7 @@ def generate_launch_description():
     )
 
     # Visualize in RViz
-    rviz_file = os.path.join(get_package_share_directory('franka_description'), 'rviz',
+    rviz_file = os.path.join(get_package_share_directory('franka_robot_description'), 'rviz',
                              'visualize_franka.rviz')
     rviz = Node(package='rviz2',
              executable='rviz2',

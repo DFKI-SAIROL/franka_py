@@ -30,17 +30,17 @@
   <xacro:property name="use_franka_hand" value="${'true' if '$(arg gripper_type)' == 'franka_default' else 'false'}" />
 
   <!-- Include franka_robot macro -->
-  <xacro:include filename="$(find franka_description)/robots/common/franka_robot.xacro"/>
+  <xacro:include filename="$(find franka_robot_description)/robots/common/franka_robot.xacro"/>
 
   <!-- ============================================== -->
   <!-- Base Robot Arm Instantiation                   -->
   <!-- ============================================== -->
   <xacro:franka_robot
       arm_id="$(arg arm_id)"
-      joint_limits="${xacro.load_yaml('$(find franka_description)/robots/$(arg arm_id)/joint_limits.yaml')}"
-      inertials="${xacro.load_yaml('$(find franka_description)/robots/$(arg arm_id)/inertials.yaml')}"
-      kinematics="${xacro.load_yaml('$(find franka_description)/robots/$(arg arm_id)/kinematics.yaml')}"
-      dynamics="${xacro.load_yaml('$(find franka_description)/robots/$(arg arm_id)/dynamics.yaml')}"
+      joint_limits="${xacro.load_yaml('$(find franka_robot_description)/robots/$(arg arm_id)/joint_limits.yaml')}"
+      inertials="${xacro.load_yaml('$(find franka_robot_description)/robots/$(arg arm_id)/inertials.yaml')}"
+      kinematics="${xacro.load_yaml('$(find franka_robot_description)/robots/$(arg arm_id)/kinematics.yaml')}"
+      dynamics="${xacro.load_yaml('$(find franka_robot_description)/robots/$(arg arm_id)/dynamics.yaml')}"
       gazebo="$(arg gazebo)"
       hand="${use_franka_hand}"
       ee_id="franka_hand"
