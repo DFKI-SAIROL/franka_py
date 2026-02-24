@@ -33,18 +33,18 @@
   <!-- rpy:   Rotation of the *_sc link relative to parent [rad]  -->
   <!-- self_collision_geometries:  self <collision> models        -->
   <!-- ========================================================== -->
-  <xacro:macro name="link_with_sc" params="name no_prefix:='false' rpy:='0 0 0' **self_collision_geometries gazebo:=false with_sc:=false with_accelerometers:=false">
-    <xacro:property name="prefix" value="${'' if no_prefix else arm_prefix + robot_type + '_'}" />
+  <xacro:macro name="link_with_sc" params="name no_prefix:='false' rpy:='0 0 0' **self_collision_geometries gazebo:=false with_sc:=false">
+    <xacro:property name="prefix" value="${'' if no_prefix else arm_prefix + arm_id + '_'}" />
     <!-- sub-link defining detailed meshes for collision with environment -->
     <link name="${prefix}${name}">
       <visual name="${prefix}${name}_visual">
         <geometry>
-          <mesh filename="package://${description_pkg}/meshes/robots/${robot_type}/visual/${name}.dae" />
+          <mesh filename="package://${description_pkg}/meshes/robot_arms/${arm_id}/visual/${name}.dae" />
         </geometry>
       </visual>
       <collision name="${prefix}${name}_collision">
         <geometry>
-          <mesh filename="package://franka_description/meshes/robots/${robot_type}/collision/${name}.stl" />
+          <mesh filename="package://franka_description/meshes/robot_arms/${arm_id}/collision/${name}.stl" />
         </geometry>
       </collision>
       <xacro:franka-inertials name="${name}" />
@@ -64,12 +64,6 @@
         <child link="${prefix}${name}_sc" />
       </joint>
     </xacro:if>
-
-    <xacro:if value="${with_accelerometers}">
-      <xacro:franka-accelerometers prefix="${prefix}" name="${name}" config="${accelerometer_config}" />
-    </xacro:if>
-
-
   </xacro:macro>
 
   <!-- =========================================================== -->
@@ -168,26 +162,26 @@
   <!-- Adds the required tags to provide a `FrankaStateInterface` -->
   <!-- when simulating with franka_hw_sim plugin                  -->
   <!--                                                            -->
-  <!-- robot_type - Arm ID of the fer to simulate (default 'fer')     -->
+  <!-- arm_id - Arm ID of the fer to simulate (default 'fer')     -->
   <!-- ========================================================== -->
-  <xacro:macro name="transmission-franka-state" params="robot_type:=fer">
-    <transmission name="${arm_prefix}${robot_type}_franka_state">
+  <xacro:macro name="transmission-franka-state" params="arm_id:=fer">
+    <transmission name="${arm_prefix}${arm_id}_franka_state">
       <type>franka_hw/FrankaStateInterface</type>
-      <joint name="${arm_prefix}${robot_type}_joint1"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
-      <joint name="${arm_prefix}${robot_type}_joint2"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
-      <joint name="${arm_prefix}${robot_type}_joint3"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
-      <joint name="${arm_prefix}${robot_type}_joint4"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
-      <joint name="${arm_prefix}${robot_type}_joint5"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
-      <joint name="${arm_prefix}${robot_type}_joint6"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
-      <joint name="${arm_prefix}${robot_type}_joint7"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
+      <joint name="${arm_prefix}${arm_id}_joint1"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
+      <joint name="${arm_prefix}${arm_id}_joint2"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
+      <joint name="${arm_prefix}${arm_id}_joint3"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
+      <joint name="${arm_prefix}${arm_id}_joint4"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
+      <joint name="${arm_prefix}${arm_id}_joint5"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
+      <joint name="${arm_prefix}${arm_id}_joint6"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
+      <joint name="${arm_prefix}${arm_id}_joint7"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></joint>
 
-      <actuator name="${arm_prefix}${robot_type}_motor1"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
-      <actuator name="${arm_prefix}${robot_type}_motor2"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
-      <actuator name="${arm_prefix}${robot_type}_motor3"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
-      <actuator name="${arm_prefix}${robot_type}_motor4"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
-      <actuator name="${arm_prefix}${robot_type}_motor5"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
-      <actuator name="${arm_prefix}${robot_type}_motor6"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
-      <actuator name="${arm_prefix}${robot_type}_motor7"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
+      <actuator name="${arm_prefix}${arm_id}_motor1"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
+      <actuator name="${arm_prefix}${arm_id}_motor2"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
+      <actuator name="${arm_prefix}${arm_id}_motor3"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
+      <actuator name="${arm_prefix}${arm_id}_motor4"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
+      <actuator name="${arm_prefix}${arm_id}_motor5"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
+      <actuator name="${arm_prefix}${arm_id}_motor6"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
+      <actuator name="${arm_prefix}${arm_id}_motor7"><hardwareInterface>franka_hw/FrankaStateInterface</hardwareInterface></actuator>
     </transmission>
   </xacro:macro>
 
@@ -195,12 +189,12 @@
   <!-- Adds the required tags to provide a `FrankaModelInterface`   -->
   <!-- when simulating with franka_hw_sim plugin                    -->
   <!--                                                              -->
-  <!-- robot_type - Arm ID of the fer to simulate (default 'fer')       -->
+  <!-- arm_id - Arm ID of the fer to simulate (default 'fer')       -->
   <!-- root   - Joint name of the base of the robot                 -->
   <!-- tip    - Joint name of the tip of the robot (flange or hand) -->
   <!-- ============================================================ -->
-  <xacro:macro name="transmission-franka-model" params="robot_type:=fer root:=fer_joint1 tip:=fer_joint7">
-    <transmission name="${arm_prefix}${robot_type}_franka_model">
+  <xacro:macro name="transmission-franka-model" params="arm_id:=fer root:=fer_joint1 tip:=fer_joint7">
+    <transmission name="${arm_prefix}${arm_id}_franka_model">
       <type>franka_hw/FrankaModelInterface</type>
       <joint name="${root}">
         <role>root</role>
@@ -242,12 +236,6 @@
                          k_velocity="40.0"
                          soft_lower_limit="${limits.lower}"
                          soft_upper_limit="${limits.upper}" />
-      
-      <!-- Add position-based velocity limits if they exist -->
-      <xacro:if value="${'position_based_velocity_limits' in config[name]}">
-        <xacro:property name="position_based_velocity_limits" value="${config[name]['position_based_velocity_limits']}" lazy_eval="false" />
-        <position_based_velocity_limits velocity_offset="${position_based_velocity_limits.velocity_offset}" deceleration_limit="${position_based_velocity_limits.deceleration_limit}" />
-      </xacro:if>
   </xacro:macro>
 
   <!-- ========================================================================= -->
@@ -277,37 +265,5 @@
       <origin rpy="${kinematics.roll} ${kinematics.pitch} ${kinematics.yaw}"
              xyz="${kinematics.x} ${kinematics.y} ${kinematics.z}" />
   </xacro:macro>
-
-  <!-- ================================================================================== -->
-  <!-- Adds the accelerometer frames given a config file of link accelerometers           -->
-  <!--                                                                                    -->
-  <!-- name   - Name of the link for which to add accelerometers to                       -->
-  <!-- prefix - Prefix to name                                                            -->
-  <!-- config - YAML struct defining link accelerometers (e.g. fr3v2/accelerometers.yaml) -->
-  <!-- ================================================================================== -->
-  <xacro:macro name="franka-accelerometers" params="name prefix config">
-      <xacro:property name="accelerometer_top" value="${config[name]['accelerometer_top']}" lazy_eval="false" />
-      <xacro:property name="accelerometer_bottom" value="${config[name]['accelerometer_bottom']}" lazy_eval="false" />
-
-      <link name="${prefix}${name}_accelerometer_top">
-      </link>
-      <joint name="${prefix}${name}_accelerometer_top_joint" type="fixed">
-        <origin rpy="${accelerometer_top.roll} ${accelerometer_top.pitch} ${accelerometer_top.yaw}"
-             xyz="${accelerometer_top.x} ${accelerometer_top.y} ${accelerometer_top.z}" />
-        <parent link="${prefix}${name}" />
-        <child link="${prefix}${name}_accelerometer_top" />
-      </joint>
-
-      <link name="${prefix}${name}_accelerometer_bottom">
-      </link>
-      <joint name="${prefix}${name}_accelerometer_bottom_joint" type="fixed">
-        <origin rpy="${accelerometer_bottom.roll} ${accelerometer_bottom.pitch} ${accelerometer_bottom.yaw}"
-             xyz="${accelerometer_bottom.x} ${accelerometer_bottom.y} ${accelerometer_bottom.z}" />
-        <parent link="${prefix}${name}" />
-        <child link="${prefix}${name}_accelerometer_bottom" />
-      </joint>
-
-  </xacro:macro>
-
 
 </robot>
