@@ -5,8 +5,8 @@
 We usually launch the robots from `dynamic_example.launch.py`.
 
 ```
-ros2 launch franka_launch dynamic_exmaple.launch.py \
-    robot_config_file:=dynamic_bimanual \
+ros2 launch franka_launch example.launch.py \
+    robot_config_file:=dfki_bimanual \
     spawn_franka_left:=false \
     spawn_franka_right:=true \
     use_fake_hardware:=true
@@ -32,8 +32,8 @@ ros2 launch franka_launch gripper.launch.py arm_prefix:=franka_right
 You can check if the controller is working by publishing joint position commands to the 
 
 ```
-ros2 topic pub --once /franka_right/gripper_controller/joint_trajectory \
-    trajectory_msgs/msg/JointTrajectory \ 
+ros2 topic pub --once /franka_right/gripper/gripper_controller/joint_trajectory \
+    trajectory_msgs/msg/JointTrajectory \
     "{joint_names: ['franka_right_rh_r1'], points: [{positions: [0.5], time_from_start: {sec: 1, nanosec: 0}}]}"
 ```
 

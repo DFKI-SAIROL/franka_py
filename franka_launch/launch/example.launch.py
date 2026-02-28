@@ -24,6 +24,8 @@ logging.root.setLevel(logging.INFO)
 def generate_robot_nodes(context):
     nodes = []
     config_file = LaunchConfiguration('robot_config_file').perform(context)
+    print(config_file)
+
     configs = load_yaml(config_file)
 
     spawn_robots = []

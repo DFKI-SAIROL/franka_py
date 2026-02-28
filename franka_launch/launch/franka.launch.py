@@ -84,22 +84,21 @@ def generate_robot_nodes(context):
     }
 
     import tempfile
+    broadcaster_arm_id = f'{arm_prefix}_{arm_id}' if arm_prefix else arm_id
     joints_list = [f'{arm_prefix}_{arm_id}_joint{i}' if arm_prefix else f'{arm_id}_joint{i}' for i in range(1, 8)]
-    
+
     controller_params = {
-        f'{namespace}': {
-            f'{arm_controller}': {
-                'ros__parameters': {
-                    'joints': joints_list
-                }
+        f'/**/{arm_controller}': {
+            'ros__parameters': {
+                'joints': joints_list
             }
-        }
+        },
     }
 
     end_effector_frame = LaunchConfiguration('end_effector_frame').perform(context)
     if end_effector_frame:
-        controller_params[namespace][arm_controller]['ros__parameters']['end_effector_frame'] = end_effector_frame
-        
+        controller_params[f'/**/{arm_controller}']['ros__parameters']['end_effector_frame'] = end_effector_frame
+
     # Write to a temporary file because passing nested dicts directly to Node `parameters` 
     # doesn't work well for controller_manager uninitialized parameter checks
     param_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml')
@@ -154,8 +153,12 @@ def generate_robot_nodes(context):
             package='controller_manager',
             executable='spawner',
             namespace=namespace,
-            arguments=['franka_robot_state_broadcaster'],
-            parameters=[{'arm_id': arm_id}],
+            arguments=[
+                'franka_robot_state_broadcaster',
+                '-c', f'/{namespace}/controller_manager' if namespace else '/controller_manager',
+                '-p', f'arm_id:={broadcaster_arm_id}'
+            ],
+            # parameters=[{'arm_id': arm_id}],
             condition=UnlessCondition(LaunchConfiguration('use_fake_hardware')),
             output='screen',
         ),
@@ -163,14 +166,9 @@ def generate_robot_nodes(context):
 
     arm_spawner_args = [
         arm_controller,
-        '-c', f'/{namespace}/controller_manager',
-        '--controller-manager-timeout', '30',
-        '--ros-args', '-p', 
-        f"joints:=[{','.join([f'{arm_prefix}_{arm_id}_joint{i}' if arm_prefix else f'{arm_id}_joint{i}' for i in range(1, 8)])}]"
+        '-c', f'/{namespace}/controller_manager' if namespace else '/controller_manager',
+        '--controller-manager-timeout', '30'
     ]
-
-    if end_effector_frame:
-        arm_spawner_args.extend(['-p', f"end_effector_frame:={end_effector_frame}"])
 
     nodes.append(Node(
         package='controller_manager',
@@ -191,6 +189,8 @@ def generate_robot_nodes(context):
             'namespace': namespace,
             'robot_ip': LaunchConfiguration('robot_ip').perform(context),
             'use_fake_hardware': LaunchConfiguration('use_fake_hardware').perform(context),
+            'xyz': xyz,
+            'rpy': rpy,
         }.items(),
         condition=UnlessCondition('true' if gripper_type == 'none' else 'false'),
     ))

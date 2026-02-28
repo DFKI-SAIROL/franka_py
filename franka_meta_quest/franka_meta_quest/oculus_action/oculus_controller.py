@@ -264,9 +264,6 @@ class VRPolicy:
             "robot_target_pos": target_pos,
             "robot_target_quat": target_quat,     
             }
-
-        self.last_target = {"pos": target_pos, "quat": target_quat} 
-
         # Return #
         return np.concatenate([target_pos, target_quat]), target_gripper, info_dict
 

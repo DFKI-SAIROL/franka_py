@@ -12,11 +12,16 @@ from rclpy.serialization import serialize_message
 import yaml
 import numpy as np
 from std_srvs.srv import Trigger
+from cv_bridge import CvBridge
 
 # Import message types for _process_msg
 from sensor_msgs.msg import JointState, Image
 from geometry_msgs.msg import PoseStamped
+from custom_interfaces.msg import RigSnapshot
 # from fmq_msgs.msg import FMQDebug # Will be added in a later step
+
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+
 
 # Helper to get nested recursive dict
 def recursive_dict_update(d, u):
@@ -80,6 +85,8 @@ class DataCollector(Node):
 
         # Scan for trigger
         self._scan_for_trigger(self.config.get('topics', {}))
+
+        self.bridge = CvBridge()
         
         if self.has_trigger_topic:
             self.get_logger().info(f"Event-driven mode: Triggered by *{self.trigger_topic_name} (logical name: {self.trigger_logical_name})")
@@ -120,11 +127,11 @@ class DataCollector(Node):
         response.message = message
         return response
 
-    def stop_recording_callback(self, request, response):
-        success, message = self.stop_recording()
-        response.success = success
-        response.message = message
-        return response
+    # def stop_recording_callback(self, request, response):
+    #     success, message = self.stop_recording()
+    #     response.success = success
+    #     response.message = message
+    #     return response
 
     def _scan_for_trigger(self, topics_config, parent_logical_name=None):
         for logical_name, items in topics_config.items():
@@ -185,11 +192,17 @@ class DataCollector(Node):
         # Initialize buffer list
         self.data_buffers[logical_name] = []
         
+        input_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
         sub = self.create_subscription(
             msg_class,
             topic_name,
             lambda msg, name=logical_name: self._topic_callback(msg, name),
-            10
+            qos_profile=input_qos
         )
         self.subs.append(sub)
 
@@ -244,18 +257,40 @@ class DataCollector(Node):
         arr = np.frombuffer(msg.data, dtype=dtype)
         
         try:
-             # Try simple reshape if possible, else return flat
-             channels = 1
-             if 'rgb' in msg.encoding or 'bgr' in msg.encoding:
-                 channels = 3
-             elif 'rgba' in msg.encoding or 'bgra' in msg.encoding:
-                 channels = 4
-             arr = arr.reshape((msg.height, msg.width, channels))
+            # Try simple reshape if possible, else return flat
+            channels = 1
+            if 'rgb' in msg.encoding or 'bgr' in msg.encoding:
+                channels = 3
+            elif 'rgba' in msg.encoding or 'bgra' in msg.encoding:
+                channels = 4
+            arr = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
+            arr = np.array(arr) 
+            # arr = arr.reshape((msg.height, msg.width, channels))
         except:
              pass
              
         with self.latest_data_lock:
             self.latest_data[logical_name] = {'image': arr}
+    
+    @_process_msg.register
+    def _(self, msg: RigSnapshot, logical_name):
+        cam_names = msg.camera_names
+        rgbs = msg.rgbs 
+
+        data = {}
+        fields = self.topic_fields.get(logical_name, None)
+
+        for name, rgb in zip(cam_names, rgbs):
+            if fields is not None and name not in fields:
+                continue
+            try:
+                arr = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='rgb8')
+                data[name] = np.array(arr)
+            except Exception as e:
+                self.get_logger().error(f"Failed to process image {name} in RigSnapshot: {e}")
+
+        with self.latest_data_lock:
+            self.latest_data[logical_name] = data
 
     def sampling_callback(self):
         if not self.is_recording:

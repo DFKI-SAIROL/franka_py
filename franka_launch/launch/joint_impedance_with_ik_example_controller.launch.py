@@ -111,7 +111,11 @@ def generate_robot_nodes(context):
                     package='controller_manager',
                     executable='spawner',
                     namespace=namespace,
-                    arguments=[controller_name, '--controller-manager-timeout', '30'],
+                    arguments=[
+                        controller_name, 
+                        '-c', f'/{namespace}/controller_manager' if namespace else '/controller_manager',
+                        '--controller-manager-timeout', '30'
+                    ],
                     parameters=[
                         PathJoinSubstitution([
                             FindPackageShare('franka_launch'), 'config', "controllers.yaml",

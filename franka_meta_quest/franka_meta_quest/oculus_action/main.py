@@ -49,12 +49,12 @@ class CartesianPosePublisher(Node):
         if self.base_frame == 'base' and self.ns != '':
             self.base_frame = self.ns[1:] + '_' + self.base_frame
         if self.ns != '':
-            self.end_effector_frame = self.ns[1:] + '_' +self.end_effector_frame
+            self.end_effector_frame = self.ns[1:] + '_' + self.end_effector_frame
 
-        self.joint_subscriber_ = self.create_subscription(JointState, self.ns + '/joint_states', self.joint_state_callback, 1)
+        self.joint_subscriber_ = self.create_subscription(JointState, self.ns + '/franka/joint_states', self.joint_state_callback, 1)
         self.gripper_subscriber_ = self.create_subscription(JointState, self.ns + '/franka_gripper/joint_states', self.gripper_state_callback, 1)
         self.publisher_ = self.create_publisher(PoseStamped, self.ns + '/target_pose', 1)
-        self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper_controller/joint_trajectory', 1)
+        self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
         self.debug_publisher_ = self.create_publisher(FMQDebug, self.ns + '/mq_debug', 1)
         # TODO: add YAML
         self.timer = self.create_timer(1.0 / 15, self.timer_callback)
@@ -125,6 +125,62 @@ class CartesianPosePublisher(Node):
         ros_quat.w = q[3]
         return ros_quat
 
+    def _apply_safety_shields(self, target_pos, target_quat, controller_action_info):
+        movement_enabled = controller_action_info["movement_enabled"]
+        vr_pos = controller_action_info["vr_pos"]
+
+        if not movement_enabled:
+            if hasattr(self, 'last_raw_target'):
+                del self.last_raw_target # Reset raw tracker on button release
+            return target_pos, target_quat
+
+        if not hasattr(self, 'last_raw_target') or self.controller.last_target is None:
+            self.last_raw_target = {"pos": vr_pos.copy(), "quat": target_quat.copy()}
+            return target_pos, target_quat
+
+        # 1. OUTLIER REJECTION: Check instant jumps on the unscaled VR tracking offsets
+        raw_pos_diff = vr_pos - self.last_raw_target["pos"]
+        raw_pos_dist = np.linalg.norm(raw_pos_diff)
+
+        # Always update the raw tracker memory so the headset can recover from glitches
+        self.last_raw_target = {"pos": vr_pos.copy(), "quat": target_quat.copy()}
+        
+        # Max speeds (per 1/15th of a second)
+        MAX_POS_STEP = 0.03   # 45 cm/s robot limit
+        MAX_QUAT_STEP = 0.15  # 135 deg/s robot limit
+        
+        # Outlier Rejection: 0.08m per VR tick = 1.2 m/s jumping. 
+        if raw_pos_dist > 0.08:
+            self.get_logger().warn(f"Dropped VR frame: impossible tracker jump ({raw_pos_dist:.3f}m > 0.08m)")
+            # Keep robot safely exactly where it was previously commanded
+            return self.controller.last_target["pos"], self.controller.last_target["quat"]
+
+        # 2. DELTA CLAMPING: How far does the ROBOT need to move this tick?
+        pos_diff = target_pos - self.controller.last_target["pos"]
+        pos_dist = np.linalg.norm(pos_diff)
+
+        # Linear Clamp (Trailing smoothly without warning spam)
+        if pos_dist > MAX_POS_STEP:
+            target_pos = self.controller.last_target["pos"] + (pos_diff / pos_dist) * MAX_POS_STEP
+
+        # Slerp Clamp for quaternion
+        current_quat = self.controller.last_target["quat"]
+        dot = np.dot(current_quat, target_quat)
+        if dot < 0.0:
+            target_quat = -target_quat
+            dot = -dot
+        
+        dot = np.clip(dot, -1.0, 1.0)
+        theta_0 = np.arccos(dot)
+        
+        if theta_0 > MAX_QUAT_STEP:
+            q3 = target_quat - current_quat * dot
+            q3 = q3 / np.linalg.norm(q3)
+            target_quat = current_quat * np.cos(MAX_QUAT_STEP) + q3 * np.sin(MAX_QUAT_STEP)
+            target_quat = target_quat / np.linalg.norm(target_quat)
+
+        return target_pos, target_quat
+
     def timer_callback(self):
 
         controller_info = self.controller.get_info()
@@ -144,7 +200,7 @@ class CartesianPosePublisher(Node):
         # === Gating ===
         # if not lower lever pressed ("movement_enabled"), do not update target. 
         # Update: We do NOT publish at all if movement is not enabled.
-        if not controller_info["movement_enabled"]:
+        if not controller_info["movement_enabled"] and not b_pressed:
              return
 
         succ, translation, rotation = self.lookup_transform()
@@ -167,11 +223,94 @@ class CartesianPosePublisher(Node):
             print(self.ns, "empty poses", flush=True)
             return
 
+        # === B BUTTON HOME POSITION OVERRIDE ===
+        if b_pressed:
+            target_pos = np.array([0.3, -0.3, 0.4])
+            target_quat = np.array([0.95, 0.32, 0.0, 0.0])
+            target_quat = target_quat / np.linalg.norm(target_quat)
+
+            # Use the last commanded pose as the starting point, or the current robot_state if we don't have one
+            current_pos = None
+            current_quat = None
+            if self.controller.last_target is not None:
+                current_pos = self.controller.last_target["pos"]
+                current_quat = self.controller.last_target["quat"]
+            elif self.controller.robot_state is not None:
+                current_pos = self.controller.robot_state["pos"]
+                current_quat = self.controller.robot_state["quat"]
+
+            if current_pos is not None and current_quat is not None:
+                # Distance calculation
+                pos_diff = target_pos - current_pos
+                pos_dist = np.linalg.norm(pos_diff)
+                
+                # Max speeds (per 1/15th of a second)
+                MAX_LIN_SPEED = 0.10 # m/s (10 cm per second)
+                MAX_ANG_SPEED = 0.2  # rad/s (~11 degrees per second)
+                dt = 1.0 / 15.0
+                max_pos_step = MAX_LIN_SPEED * dt
+                max_quat_step = MAX_ANG_SPEED * dt
+                
+                # Linear step
+                if pos_dist > max_pos_step:
+                    next_pos = current_pos + (pos_diff / pos_dist) * max_pos_step
+                else:
+                    next_pos = target_pos
+
+                # Slerp for quaternion
+                dot = np.dot(current_quat, target_quat)
+                if dot < 0.0:
+                    target_quat = -target_quat
+                    dot = -dot
+                
+                dot = np.clip(dot, -1.0, 1.0)
+                theta_0 = np.arccos(dot)
+                
+                if theta_0 > max_quat_step:
+                    q3 = target_quat - current_quat * dot
+                    q3 = q3 / np.linalg.norm(q3)
+                    next_quat = current_quat * np.cos(max_quat_step) + q3 * np.sin(max_quat_step)
+                    next_quat = next_quat / np.linalg.norm(next_quat)
+                else:
+                    next_quat = target_quat
+
+                translation = next_pos
+                rotation = next_quat
+            else:
+                translation = target_pos
+                rotation = target_quat
+
+            # Sync VR Policy internals so releasing B doesn't cause a Cartesian jump
+            if self.controller.vr_state is not None:
+                self.controller.robot_origin = {"pos": translation.copy(), "quat": rotation.copy()}
+                self.controller.vr_origin = {
+                    "pos": self.controller.vr_state["pos"].copy(), 
+                    "quat": self.controller.vr_state["quat"].copy()
+                }
+            self.controller.last_target = {"pos": translation.copy(), "quat": rotation.copy()}
+
+        else:
+            # === STANDARD VR TELEOPERATION ===
+            target_pos_vr = target_pose[:3]
+            target_quat_vr = target_pose[3:]
+
+            target_pos_safe, target_quat_safe = self._apply_safety_shields(
+                target_pos_vr, 
+                target_quat_vr, 
+                controller_action_info
+            )
+            
+            # Make sure VRPolicy knows where the robot actually ended up command-wise
+            self.controller.last_target = {"pos": target_pos_safe.copy(), "quat": target_quat_safe.copy()}
+            
+            translation = target_pos_safe
+            rotation = target_quat_safe
+
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.base_frame
-        msg.pose.position =  self.to_ros_point(target_pose[0:3])
-        msg.pose.orientation = self.to_ros_quat(target_pose[3:7])
+        msg.pose.position =  self.to_ros_point(translation)
+        msg.pose.orientation = self.to_ros_quat(rotation)
         self.publisher_.publish(msg)
 
         # Publish Gripper
@@ -188,8 +327,8 @@ class CartesianPosePublisher(Node):
         scaled_gripper_target = target_gripper * 1.1 
         point.positions = [scaled_gripper_target]
         
-        # 100ms duration for trajectory execution
-        point.time_from_start.nanosec = 100000000 
+        # ~66ms duration for trajectory execution to match 15Hz loop
+        point.time_from_start.nanosec = 66666666
         gripper_msg.points = [point]
         self.gripper_publisher_.publish(gripper_msg)
 
