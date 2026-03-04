@@ -129,6 +129,7 @@ class VRPolicy:
         rot_mat = self.global_to_env_mat @ self.vr_to_global_mat @ rot_mat
         vr_pos = self.spatial_coeff * rot_mat[:3, 3]
         vr_quat = rmat_to_quat(rot_mat[:3, :3] @ Rotation.from_euler("xyz", [0, 0, -np.pi / 2]).as_matrix())
+        # vr_quat = rmat_to_quat(rot_mat[:3, :3])
         vr_gripper = self._reader_state["buttons"]["rightTrig" if self.controller_id == "r" else "leftTrig"][0]
 
         # copy state to last_state

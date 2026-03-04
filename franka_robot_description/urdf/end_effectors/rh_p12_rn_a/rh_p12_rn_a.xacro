@@ -30,7 +30,7 @@
 
       <inertial>
         <origin xyz="0.000 0.000 0.032" rpy="0 0 0"/>
-        <mass value="0.436"/>
+        <mass value="0.336"/>  <!--+100g for cabeling: orig: 0.236-->
         <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001" />
       </inertial>
     </link>

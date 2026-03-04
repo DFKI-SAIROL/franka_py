@@ -62,7 +62,7 @@ For this is subscibes to the cartesian_target_pose of the teleoperation and the 
 
 ## Starting the nodes
 
-The robot can be started using ``` ros2 launch franka_launch example.launch.py ```.
+The robot can be started using ``` ros2 launch franka_launch example.launch.py spawn_franka_left:=false     spawn_franka_right:=true     use_fake_hardware:=false ```.
 
 The safety-layer-node can be started using ``` ros2 launch franka_safety_layer start_ijk.launch.py ```. 
 

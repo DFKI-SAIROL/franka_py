@@ -1,6 +1,6 @@
 /franka_right/gripper/controller_manager:
   ros__parameters:
-    update_rate: 50  # Hz
+    update_rate: 60  # Hz
     gripper_joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
     gripper_controller:
@@ -15,7 +15,7 @@
     state_interfaces:
       - position
       - velocity
-    allow_partial_joints_goal: true
+    allow_partial_joints_goal: false
     open_loop_control: true
 
 /franka_right/gripper/gripper_joint_state_broadcaster:
