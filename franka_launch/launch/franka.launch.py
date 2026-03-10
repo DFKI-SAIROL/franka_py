@@ -32,16 +32,14 @@ def generate_robot_nodes(context):
         y_config = yaml.safe_load(f)
         
     robot_config = y_config.get('robot_config', {})
-    urdf_file_name = y_config.get('urdf_description', 'main_assemblies/bimanual_dfki.urdf.xacro') # robot_config.get('urdf_file', 'main_assemblies/bimanual_dfki.urdf.xacro')
+    urdf_file_name = y_config.get('urdf_description', 'main_assemblies/bimanual_dfki.urdf.xacro')
     gripper_type = robot_config.get('gripper_type', 'franka_default')
     xyz = robot_config.get('xyz', '0 0 0')
     rpy = robot_config.get('rpy', '0 0 0')
     arm_prefix = robot_config.get('arm_prefix', '')
     arm_id = robot_config.get('arm_id', 'fr3')
-    srdf_file_name = robot_config.get('srdf_file', 'fr3/fr3.srdf.xacro')
 
     arm_controller = robot_config.get('arm_controller', 'cartesian_impedance_controller')
-    gripper_controller = robot_config.get('gripper_controller', None)
 
     load_franka_gripper = gripper_type == 'franka_default'
     use_fake_hardware_launch_configuration = LaunchConfiguration('use_fake_hardware').perform(context)
@@ -158,7 +156,6 @@ def generate_robot_nodes(context):
                 '-c', f'/{namespace}/controller_manager' if namespace else '/controller_manager',
                 '-p', f'arm_id:={broadcaster_arm_id}'
             ],
-            # parameters=[{'arm_id': arm_id}],
             condition=UnlessCondition(LaunchConfiguration('use_fake_hardware')),
             output='screen',
         ),
