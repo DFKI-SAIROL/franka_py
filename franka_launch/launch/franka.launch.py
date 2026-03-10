@@ -32,8 +32,8 @@ def generate_robot_nodes(context):
         y_config = yaml.safe_load(f)
         
     robot_config = y_config.get('robot_config', {})
-    urdf_file_name = robot_config.get('urdf_file', 'robots/fr3/fr3.urdf.xacro')
-    gripper_type = robot_config.get('gripper_type', 'none')
+    urdf_file_name = y_config.get('urdf_description', 'main_assemblies/bimanual_dfki.urdf.xacro') # robot_config.get('urdf_file', 'main_assemblies/bimanual_dfki.urdf.xacro')
+    gripper_type = robot_config.get('gripper_type', 'franka_default')
     xyz = robot_config.get('xyz', '0 0 0')
     rpy = robot_config.get('rpy', '0 0 0')
     arm_prefix = robot_config.get('arm_prefix', '')

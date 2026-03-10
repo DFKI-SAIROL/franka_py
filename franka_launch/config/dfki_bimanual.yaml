@@ -8,6 +8,7 @@ franka_left:
   robot_ip: "192.168.1.4"
   use_fake_hardware: "false"
   end_effector_frame: "franka_left_fr3_link8"
+  urdf_description: "main_assemblies/bimanual_dfki.urdf.xacro"
 
 franka_right:
   robot_config: "dfki_fr3_right"
@@ -15,3 +16,4 @@ franka_right:
   robot_ip: "192.168.0.2"
   use_fake_hardware: "false"
   end_effector_frame: "franka_right_rh_p12_rn_base"
+  urdf_description: "main_assemblies/bimanual_dfki.urdf.xacro"
