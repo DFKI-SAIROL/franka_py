@@ -1,0 +1,107 @@
+[workspace]
+preview = ["pixi-build"]
+authors = [
+    "Maximilian Tölle <maximilian.toelle@dfki.de>",
+    "Theo Gruner <theo.gruner@tu-darmstadt.de>",
+    "Ken-Joel Simmoteit <ken-joel.simmoteit@tu-darmstadt.de>",
+    "João Carvalho < joao@robot-learning.de>",
+]
+channels = ["https://fast.prefix.dev/conda-forge"]
+name = "frankapy"
+platforms = ["linux-64"]
+
+[activation]
+scripts = ["scripts/set_ros_env.sh"]
+
+[dependencies]
+python = "*"
+compilers = "*"
+cmake = "*"
+pkg-config = "*"
+make = "*"
+ninja = "*"
+pinocchio = ">=3.7.0,<4"
+pure-python-adb = ">=0.3.0.dev0,<0.4"
+
+[tasks]
+test_raw = "pytest --cov=frankapy --cov-report=html"
+test = [{task="test_raw", environment="humble"}]
+setup = "bash scripts/setup.sh"
+# build = "colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+build = "colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+clean = "rm -rf build install log"
+clean-build = [{ task = "clean" }, { task = "build" }]
+robot = "bash scripts/run_robot.sh"
+teleop = "bash scripts/run_teleop.sh"
+data-collection = "bash scripts/run_data_collection.sh"
+frankapy = { depends-on = ["robot", "teleop", "data-collection"] }
+
+
+[target.linux.dependencies]
+libgl-devel = "*"
+libcap = "*"
+poco = "*"
+
+[environments]
+humble = { features = ["humble", "frankapy", "extra", "dev"] }
+jazzy = { features = ["jazzy", "frankapy", "extra", "dev"] }
+humble-viser = { features = ["jazzy", "viser", "frankapy", "extra", "dev"] }
+jazzy-viser = { features = ["jazzy", "viser", "frankapy", "extra", "dev"] }
+humble-clean = { features = ["humble"] }
+
+# humble
+[feature.humble]
+channels = ["https://prefix.dev/robostack-humble"]
+
+[feature.humble.dependencies]
+ros-humble-desktop = "*"
+colcon-common-extensions = "*"
+ros-humble-ros2-control = "*"
+ros-humble-ros2-controllers = "*"
+ros-humble-rmw-zenoh-cpp = "*"
+ros-humble-rmw-cyclonedds-cpp = "*"
+rosdep = "*"
+libstdcxx-ng = "*"
+setuptools = "<65.0.0"
+ros-humble-moveit = "*"
+
+[feature.humble.pypi-dependencies]
+viser = ">=1.0.16, <2"
+
+# jazzy
+[feature.jazzy]
+channels = ["https://prefix.dev/robostack-jazzy"]
+
+[feature.jazzy.dependencies]
+ros-jazzy-desktop = "*"
+ros-jazzy-ros2-control = "*"
+ros-jazzy-ros2-controllers = "*"
+colcon-common-extensions = "*"
+ros-jazzy-rmw-zenoh-cpp = "*"
+ros-jazzy-rmw-cyclonedds-cpp = "*"
+rosdep = "*"
+ros-jazzy-moveit = "*"
+# scipy = "*"
+
+[feature.viser.pypi-dependencies]
+viser = ">=1.0.19, <2"
+robot-descriptions = ">=1.22.0, <2"
+
+[feature.dev.pypi-dependencies]
+ruff= "*"
+bumpver = "*"
+build = "*"
+twine = "*"
+pre-commit = "*"
+pytest = "*"  # for testing
+
+[feature.frankapy.pypi-dependencies]
+frankapy = { path = ".", editable = true }
+
+[feature.extra.pypi-dependencies]
+rich = "*"  # For nice prints
+matplotlib = "*"  # to do some plots
+
+[pypi-dependencies]
+yourdfpy = ">=0.0.58, <0.0.59"
+crisp-python = { git = "https://github.com/utiasDSL/crisp_py.git" }

@@ -1047,3 +1047,17 @@ dkms.conf
 .vscode
 
 franka_meta_quest/franka_meta_quest/pure_python/*
+
+
+# pixi environments
+.pixi
+*.egg-info
+build
+install
+log
+scripts/personal_ros_env.sh
+**/__pycache__
+.venv
+
+# Custom
+crisp_controllers
