@@ -1,9 +1,0 @@
-<library path="franka_adaptable_controllers">
-    <class name="franka_adaptable_controllers/JointPositionAdaptableController"
-           type="franka_adaptable_controllers::JointPositionAdaptableController" base_class_type="controller_interface::ControllerInterface">
-        <description>
-            The joint position adaptable controller moves regarding sent joint positions from ros.
-        </description>
-    </class>
-    
-</library>
