@@ -27,8 +27,7 @@ pure-python-adb = ">=0.3.0.dev0,<0.4"
 test_raw = "pytest --cov=frankapy --cov-report=html"
 test = [{task="test_raw", environment="humble"}]
 setup = "bash scripts/setup.sh"
-# build = "colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
-build = "colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+build = "colcon build --symlink-install --packages-skip franka_data_collection --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DBUILD_TESTING=OFF"
 clean = "rm -rf build install log"
 clean-build = [{ task = "clean" }, { task = "build" }]
 robot = "bash scripts/run_robot.sh"
