@@ -4,7 +4,7 @@ import numpy as np
 import threading
 import sys
 import termios
-
+from scipy.spatial.transform import Rotation
 
 import rclpy
 from rclpy.node import Node
@@ -13,7 +13,7 @@ from geometry_msgs.msg import PoseStamped, TransformStamped, Pose, Point, Quater
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Time, Duration as ROSDuration
-from tf2_ros import Buffer, TransformListener
+from tf2_ros import Buffer, TransformListener, TransformBroadcaster
 from franka_custom_msgs.msg import FMQDebug
 from std_srvs.srv import Trigger
 
@@ -34,9 +34,12 @@ class CartesianPosePublisher(Node):
             self.ns = ''
             
         self.declare_parameter('base_frame', 'base')
-        self.declare_parameter('end_effector_frame', 'fr3_link8')
+        self.declare_parameter('end_effector_frame', 'rh_p12_rn_base')
         
         self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
+        
+        # Internal state
+        self.last_raw_target = None
         self.end_effector_frame = self.get_parameter('end_effector_frame').get_parameter_value().string_value
         
         self.base_frame = "world"
@@ -46,8 +49,8 @@ class CartesianPosePublisher(Node):
         print(self.end_effector_frame)
 
         # fallback for bimanual prefix parsing if left default
-        if self.base_frame == 'base' and self.ns != '':
-            self.base_frame = self.ns[1:] + '_' + self.base_frame
+        # if self.base_frame == 'base' and self.ns != '':
+        #     self.base_frame = self.ns[1:] + '_' + self.base_frame
         if self.ns != '':
             self.end_effector_frame = self.ns[1:] + '_' + self.end_effector_frame
 
@@ -57,10 +60,11 @@ class CartesianPosePublisher(Node):
         self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
         self.debug_publisher_ = self.create_publisher(FMQDebug, self.ns + '/mq_debug', 1)
         # TODO: add YAML
-        self.timer = self.create_timer(1.0 / 15, self.timer_callback)
+        self.timer = self.create_timer(1.0 / 50, self.timer_callback)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_broadcaster = TransformBroadcaster(self)
         self.init_transform = None
 
         self.current_joint_state = JointState()
@@ -130,11 +134,11 @@ class CartesianPosePublisher(Node):
         vr_pos = controller_action_info["vr_pos"]
 
         if not movement_enabled:
-            if hasattr(self, 'last_raw_target'):
-                del self.last_raw_target # Reset raw tracker on button release
+            self.last_raw_target = None # Reset raw tracker on button release
             return target_pos, target_quat
 
-        if not hasattr(self, 'last_raw_target') or self.controller.last_target is None:
+        # Determine tracking delta relative to original pressing point
+        if self.last_raw_target is None or self.controller.last_target is None:
             self.last_raw_target = {"pos": vr_pos.copy(), "quat": target_quat.copy()}
             return target_pos, target_quat
 
@@ -181,131 +185,103 @@ class CartesianPosePublisher(Node):
 
         return target_pos, target_quat
 
-    def timer_callback(self):
-
-        controller_info = self.controller.get_info()
-        
-        # === Button Triggers for Recording ===
-        # Mapping: A/X -> Start, B/Y -> Stop
-        # Detect rising edge
+    def _handle_recording_triggers(self, controller_info):
+        """Map controller buttons to ROS data collection services"""
         a_pressed = controller_info.get("success", False) # A or X
         b_pressed = controller_info.get("failure", False) # B or Y
         
-        if a_pressed and not self.last_buttons["A"]: # Using "A" key for success logic state
+        # Detect rising edge for A
+        if a_pressed and not self.last_buttons["A"]: 
              self.call_service_async(self.cli_rec, 'Recording')
              
         self.last_buttons["A"] = a_pressed
         self.last_buttons["B"] = b_pressed
         
-        # === Gating ===
-        # if not lower lever pressed ("movement_enabled"), do not update target. 
-        # Update: We do NOT publish at all if movement is not enabled.
-        if not controller_info["movement_enabled"] and not b_pressed:
-             return
+        return a_pressed, b_pressed
 
+    def _get_current_robot_state(self):
+        """Fetch current cartesian and gripper state of the real robot"""
         succ, translation, rotation = self.lookup_transform()
         if not succ:
-            return
+            return False, None
+            
+        robot_state_dict = {
+            "cartesian_position": translation,
+            "cartesian_rotation": rotation,
+            "gripper_position": self.current_gripper_state.position[0] if len(self.current_gripper_state.position) > 0 else 0.0
+        }
+        return True, robot_state_dict
         
-        robot_state_dict = {}
-        robot_state_dict["cartesian_position"] = translation
-        robot_state_dict["cartesian_rotation"] = rotation
-        
-        # Read the actual physical gripper position if available, else 0
-        current_gripper_pos = 0.0
-        if len(self.current_gripper_state.position) > 0:
-            current_gripper_pos = self.current_gripper_state.position[0]
-        robot_state_dict["gripper_position"] = current_gripper_pos
-        
-        target_pose, target_gripper, controller_action_info = self.controller.forward(robot_state_dict)
+    def _compute_home_override(self, b_pressed):
+        """Compute smooth homing trajectory if B is held"""
+        target_pos = np.array([0.3, -0.3, 0.4])
+        target_quat = np.array([0.95, 0.32, 0.0, 0.0])
+        target_quat = target_quat / np.linalg.norm(target_quat)
 
-        if controller_action_info == {}:
-            print(self.ns, "empty poses", flush=True)
-            return
+        # Use the last commanded pose as the starting point, or current physical state
+        current_pos = None
+        current_quat = None
+        if self.controller.last_target is not None:
+            current_pos = self.controller.last_target["pos"]
+            current_quat = self.controller.last_target["quat"]
+        elif self.controller.robot_state is not None:
+            current_pos = self.controller.robot_state["pos"]
+            current_quat = self.controller.robot_state["quat"]
 
-        # === B BUTTON HOME POSITION OVERRIDE ===
-        if b_pressed:
-            target_pos = np.array([0.3, -0.3, 0.4])
-            target_quat = np.array([0.95, 0.32, 0.0, 0.0])
-            target_quat = target_quat / np.linalg.norm(target_quat)
-
-            # Use the last commanded pose as the starting point, or the current robot_state if we don't have one
-            current_pos = None
-            current_quat = None
-            if self.controller.last_target is not None:
-                current_pos = self.controller.last_target["pos"]
-                current_quat = self.controller.last_target["quat"]
-            elif self.controller.robot_state is not None:
-                current_pos = self.controller.robot_state["pos"]
-                current_quat = self.controller.robot_state["quat"]
-
-            if current_pos is not None and current_quat is not None:
-                # Distance calculation
-                pos_diff = target_pos - current_pos
-                pos_dist = np.linalg.norm(pos_diff)
-                
-                # Max speeds (per 1/15th of a second)
-                MAX_LIN_SPEED = 0.10 # m/s (10 cm per second)
-                MAX_ANG_SPEED = 0.2  # rad/s (~11 degrees per second)
-                dt = 1.0 / 15.0
-                max_pos_step = MAX_LIN_SPEED * dt
-                max_quat_step = MAX_ANG_SPEED * dt
-                
-                # Linear step
-                if pos_dist > max_pos_step:
-                    next_pos = current_pos + (pos_diff / pos_dist) * max_pos_step
-                else:
-                    next_pos = target_pos
-
-                # Slerp for quaternion
-                dot = np.dot(current_quat, target_quat)
-                if dot < 0.0:
-                    target_quat = -target_quat
-                    dot = -dot
-                
-                dot = np.clip(dot, -1.0, 1.0)
-                theta_0 = np.arccos(dot)
-                
-                if theta_0 > max_quat_step:
-                    q3 = target_quat - current_quat * dot
-                    q3 = q3 / np.linalg.norm(q3)
-                    next_quat = current_quat * np.cos(max_quat_step) + q3 * np.sin(max_quat_step)
-                    next_quat = next_quat / np.linalg.norm(next_quat)
-                else:
-                    next_quat = target_quat
-
-                translation = next_pos
-                rotation = next_quat
+        if current_pos is not None and current_quat is not None:
+            # Distance calculation
+            pos_diff = target_pos - current_pos
+            pos_dist = np.linalg.norm(pos_diff)
+            
+            # Max speeds (per 1/15th of a second)
+            MAX_LIN_SPEED = 0.10 # m/s
+            MAX_ANG_SPEED = 0.2  # rad/s
+            dt = 1.0 / 15.0
+            max_pos_step = MAX_LIN_SPEED * dt
+            max_quat_step = MAX_ANG_SPEED * dt
+            
+            # Linear step
+            if pos_dist > max_pos_step:
+                next_pos = current_pos + (pos_diff / pos_dist) * max_pos_step
             else:
-                translation = target_pos
-                rotation = target_quat
+                next_pos = target_pos
 
-            # Sync VR Policy internals so releasing B doesn't cause a Cartesian jump
-            if self.controller.vr_state is not None:
-                self.controller.robot_origin = {"pos": translation.copy(), "quat": rotation.copy()}
-                self.controller.vr_origin = {
-                    "pos": self.controller.vr_state["pos"].copy(), 
-                    "quat": self.controller.vr_state["quat"].copy()
-                }
-            self.controller.last_target = {"pos": translation.copy(), "quat": rotation.copy()}
+            # Slerp for quaternion
+            dot = np.dot(current_quat, target_quat)
+            if dot < 0.0:
+                target_quat = -target_quat
+                dot = -dot
+            
+            dot = np.clip(dot, -1.0, 1.0)
+            theta_0 = np.arccos(dot)
+            
+            if theta_0 > max_quat_step:
+                q3 = target_quat - current_quat * dot
+                q3 = q3 / np.linalg.norm(q3)
+                next_quat = current_quat * np.cos(max_quat_step) + q3 * np.sin(max_quat_step)
+                next_quat = next_quat / np.linalg.norm(next_quat)
+            else:
+                next_quat = target_quat
 
+            translation = next_pos
+            rotation = next_quat
         else:
-            # === STANDARD VR TELEOPERATION ===
-            target_pos_vr = target_pose[:3]
-            target_quat_vr = target_pose[3:]
+            translation = target_pos
+            rotation = target_quat
 
-            target_pos_safe, target_quat_safe = self._apply_safety_shields(
-                target_pos_vr, 
-                target_quat_vr, 
-                controller_action_info
-            )
-            
-            # Make sure VRPolicy knows where the robot actually ended up command-wise
-            self.controller.last_target = {"pos": target_pos_safe.copy(), "quat": target_quat_safe.copy()}
-            
-            translation = target_pos_safe
-            rotation = target_quat_safe
+        # Sync VR Policy internals so releasing B doesn't cause a Cartesian jump
+        if self.controller.vr_state is not None:
+            self.controller.robot_origin = {"pos": translation.copy(), "quat": rotation.copy()}
+            self.controller.vr_origin = {
+                "pos": self.controller.vr_state["pos"].copy(), 
+                "quat": self.controller.vr_state["quat"].copy()
+            }
+        
+        return translation, rotation
 
+    def _publish_commands(self, translation, rotation, target_gripper):
+        """Publish Cartesian Pose and Gripper Trajectory"""
+        # Publish Pose
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.base_frame
@@ -313,17 +289,30 @@ class CartesianPosePublisher(Node):
         msg.pose.orientation = self.to_ros_quat(rotation)
         self.publisher_.publish(msg)
 
+        # Broadcast Target Pose TF for RViz
+        t = TransformStamped()
+        t.header.stamp = msg.header.stamp
+        t.header.frame_id = self.base_frame
+        prefix = self.ns[1:] + "_" if len(self.ns) > 1 else ""
+        t.child_frame_id = f"{prefix}vr_target_pose"
+        t.transform.translation.x = float(translation[0])
+        t.transform.translation.y = float(translation[1])
+        t.transform.translation.z = float(translation[2])
+        t.transform.rotation.x = float(rotation[0])
+        t.transform.rotation.y = float(rotation[1])
+        t.transform.rotation.z = float(rotation[2])
+        t.transform.rotation.w = float(rotation[3])
+        self.tf_broadcaster.sendTransform(t)
+
         # Publish Gripper
         gripper_msg = JointTrajectory()
         gripper_msg.header.stamp = self.get_clock().now().to_msg()
         
-        # Determine correct prefrixed joint name
         prefix = self.ns[1:] + "_" if self.ns != "" else ""
         gripper_msg.joint_names = [f"{prefix}rh_r1"]
         
         point = JointTrajectoryPoint()
-        # Scale 0-1 from VR trigger to 0-1.1 radians for Dynamixel (0=Open, 1.1=Closed)
-        # Assumes target_gripper 1.0 = fully pressed = fully closed.
+        # Scale 0-1 from VR trigger to 0-1.1 radians for Dynamixel
         scaled_gripper_target = target_gripper * 1.1 
         point.positions = [scaled_gripper_target]
         
@@ -331,38 +320,122 @@ class CartesianPosePublisher(Node):
         point.time_from_start.nanosec = 66666666
         gripper_msg.points = [point]
         self.gripper_publisher_.publish(gripper_msg)
+        return msg
 
-        if controller_action_info != {}:
+    def _publish_debug_info(self, msg_header, controller_info, controller_action_info):
+        """Publish massive debugging message for data collection"""
+        debug_msg = FMQDebug()
+        debug_msg.header = msg_header
+        debug_msg.movement_enabled = controller_info["movement_enabled"]
 
+        debug_msg.vr_raw_pose.position =  self.to_ros_point(controller_action_info["vr_raw_pos"])
+        debug_msg.vr_raw_pose.orientation = self.to_ros_quat(controller_action_info["vr_raw_quat"])
+
+        debug_msg.vr_origin.position =  self.to_ros_point(controller_action_info["vr_origin_pos"])
+        debug_msg.vr_origin.orientation = self.to_ros_quat(controller_action_info["vr_origin_quat"])
+
+        debug_msg.vr_pose.position =  self.to_ros_point(controller_action_info["vr_pos"])
+        debug_msg.vr_pose.orientation = self.to_ros_quat(controller_action_info["vr_quat"])
+
+        debug_msg.robot_raw_pose.position =  self.to_ros_point(controller_action_info["robot_raw_pos"])
+        debug_msg.robot_raw_pose.orientation = self.to_ros_quat(controller_action_info["robot_raw_quat"])
+
+        debug_msg.robot_origin.position =  self.to_ros_point(controller_action_info["robot_origin_pos"])
+        debug_msg.robot_origin.orientation = self.to_ros_quat(controller_action_info["robot_origin_quat"])
+
+        debug_msg.robot_pose.position =  self.to_ros_point(controller_action_info["robot_pos"])
+        debug_msg.robot_pose.orientation = self.to_ros_quat(controller_action_info["robot_quat"])
+
+        debug_msg.robot_target_pose.position =  self.to_ros_point(controller_action_info["robot_target_pos"])
+        debug_msg.robot_target_pose.orientation = self.to_ros_quat(controller_action_info["robot_target_quat"])
+        
+        # Record purest user-intent delta.
+        if self.controller.last_target is not None:
+            delta_pos = controller_action_info["robot_target_pos"] - self.controller.last_target["pos"]
+            r_prev = Rotation.from_quat(self.controller.last_target["quat"])
+            r_curr = Rotation.from_quat(controller_action_info["robot_target_quat"])
+            delta_quat = (r_curr * r_prev.inv()).as_quat()
+        else:
+            delta_pos = np.zeros(3)
+            delta_quat = np.array([0.0, 0.0, 0.0, 1.0])
+
+        debug_msg.delta_target_pose.position = self.to_ros_point(delta_pos)
+        debug_msg.delta_target_pose.orientation = self.to_ros_quat(delta_quat)
+        
+        self.debug_publisher_.publish(debug_msg)
+
+    def timer_callback(self):
+
+
+        controller_info = self.controller.get_info()
+        a_pressed, b_pressed = self._handle_recording_triggers(controller_info)
+        
+        succ, robot_state_dict = self._get_current_robot_state()
+        if not succ:
+            return
+
+        # Gating: Do not update or publish target if movement is not enabled (unless explicitly homing)
+        if not controller_info["movement_enabled"] and not b_pressed:
+            self.last_raw_target = None
+            self.controller.last_target = {
+                "pos": robot_state_dict["cartesian_position"].copy(), 
+                "quat": robot_state_dict["cartesian_rotation"].copy()
+            }
+            
+            # Broadcast idle state to data collector natively at 15Hz
             debug_msg = FMQDebug()
-
-            debug_msg.header = msg.header
-
-            debug_msg.movement_enabled = controller_info["movement_enabled"]
-
-            debug_msg.vr_raw_pose.position =  self.to_ros_point(controller_action_info["vr_raw_pos"])
-            debug_msg.vr_raw_pose.orientation = self.to_ros_quat(controller_action_info["vr_raw_quat"])
-
-            debug_msg.vr_origin.position =  self.to_ros_point(controller_action_info["vr_origin_pos"])
-            debug_msg.vr_origin.orientation = self.to_ros_quat(controller_action_info["vr_origin_quat"])
-
-            debug_msg.vr_pose.position =  self.to_ros_point(controller_action_info["vr_pos"])
-            debug_msg.vr_pose.orientation = self.to_ros_quat(controller_action_info["vr_quat"])
-
-            debug_msg.robot_raw_pose.position =  self.to_ros_point(controller_action_info["robot_raw_pos"])
-            debug_msg.robot_raw_pose.orientation = self.to_ros_quat(controller_action_info["robot_raw_quat"])
-
-            debug_msg.robot_origin.position =  self.to_ros_point(controller_action_info["robot_origin_pos"])
-            debug_msg.robot_origin.orientation = self.to_ros_quat(controller_action_info["robot_origin_quat"])
-
-            debug_msg.robot_pose.position =  self.to_ros_point(controller_action_info["robot_pos"])
-            debug_msg.robot_pose.orientation = self.to_ros_quat(controller_action_info["robot_quat"])
-
-            debug_msg.robot_target_pose.position =  self.to_ros_point(controller_action_info["robot_target_pos"])
-            debug_msg.robot_target_pose.orientation = self.to_ros_quat(controller_action_info["robot_target_quat"])
-
-
+            debug_msg.header.stamp = self.get_clock().now().to_msg()
+            debug_msg.header.frame_id = self.base_frame
+            debug_msg.movement_enabled = False
             self.debug_publisher_.publish(debug_msg)
+
+            # Broadcast Target TF while idle (follows robot)
+            t = TransformStamped()
+            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.frame_id = self.base_frame
+            prefix = self.ns[1:] + "_" if len(self.ns) > 1 else ""
+            t.child_frame_id = f"{prefix}vr_target_pose"
+            t.transform.translation.x = float(robot_state_dict["cartesian_position"][0])
+            t.transform.translation.y = float(robot_state_dict["cartesian_position"][1])
+            t.transform.translation.z = float(robot_state_dict["cartesian_position"][2])
+            t.transform.rotation.x = float(robot_state_dict["cartesian_rotation"][0])
+            t.transform.rotation.y = float(robot_state_dict["cartesian_rotation"][1])
+            t.transform.rotation.z = float(robot_state_dict["cartesian_rotation"][2])
+            t.transform.rotation.w = float(robot_state_dict["cartesian_rotation"][3])
+            self.tf_broadcaster.sendTransform(t)
+            
+            return
+        
+        # Pull standard action intent from VR Controller
+        target_pose, target_gripper, controller_action_info = self.controller.forward(robot_state_dict)
+
+        if not controller_action_info: # empty dict implies no poses from meta quest Yet
+            self.get_logger().debug("VR Poses unavailable, skipping loop.")
+            return
+
+        if b_pressed:
+            # === B BUTTON HOME POSITION OVERRIDE ===
+            translation, rotation = self._compute_home_override(b_pressed)
+        else:
+            # === STANDARD VR TELEOPERATION ===
+            target_pos_vr = target_pose[:3]
+            target_quat_vr = target_pose[3:]
+
+            translation, rotation = self._apply_safety_shields(
+                target_pos_vr, 
+                target_quat_vr, 
+                controller_action_info
+            )
+            
+        # Execute Command to Robot
+        pose_msg = self._publish_commands(translation, rotation, target_gripper)
+        
+        # Log to Debug Publisher
+        if controller_action_info:
+            self._publish_debug_info(pose_msg.header, controller_info, controller_action_info)
+
+        # Update tracking memory 
+        self.controller.last_target = {"pos": translation.copy(), "quat": rotation.copy()}
 
 
 def main(args=None):
