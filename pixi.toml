@@ -20,7 +20,7 @@ cmake = "*"
 pkg-config = "*"
 make = "*"
 ninja = "*"
-pinocchio = ">=3.7.0,<4"
+pinocchio = "*"
 pure-python-adb = ">=0.3.0.dev0,<0.4"
 
 [tasks]
@@ -62,7 +62,7 @@ ros-humble-rmw-zenoh-cpp = "*"
 ros-humble-rmw-cyclonedds-cpp = "*"
 rosdep = "*"
 libstdcxx-ng = "*"
-setuptools = "<65.0.0"
+setuptools = ">=65.0.0,<70.0.0"
 ros-humble-moveit = "*"
 
 [feature.humble.pypi-dependencies]
