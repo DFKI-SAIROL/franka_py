@@ -17,5 +17,10 @@ else
     fi
 fi
 
+WORKSPACE_SETUP="${PIXI_PROJECT_ROOT:-$(pwd)}/install/setup.bash"
+if [ -f "$WORKSPACE_SETUP" ]; then
+    . "$WORKSPACE_SETUP"
+fi
+
 ros2 daemon stop
 ros2 daemon start
