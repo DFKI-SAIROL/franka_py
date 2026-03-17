@@ -16,8 +16,10 @@ if [ ! -d "franka_ros2" ]; then
     # Remove useless ros2 nodes from franka
     rm -rf ./franka_ros2/franka_gazebo ./franka_ros2/franka_fr3_moveit_config ./franka_ros2/franka_mobile_example_controllers ./franka_ros2/franka_mobile_sensors ./franka_ros2/franka_gazebo_bringup
     rm -rf ./franka_ros2/libfranka ./franka_ros2/franka_robot_state_broadcaster
-    cd ./franka_ros2/ && git clone --recurse-submodules git@git.ias.informatik.tu-darmstadt.de:ros2/franka/libfranka.git
-    cd ./franka_ros2/ && git clone git@git.ias.informatik.tu-darmstadt.de:ros2/franka/franka_robot_state_broadcaster.git
+    cd ./franka_ros2/ 
+    git clone --recurse-submodules https://git.ias.informatik.tu-darmstadt.de/ros2/franka/libfranka.git
+    git clone https://git.ias.informatik.tu-darmstadt.de/ros2/franka/franka_robot_state_broadcaster.git
+    cd ..
     vcs import ./franka_ros2 < ./franka_ros2/dependency.repos --recursive --skip-existing
     rosdep install --from-paths ./franka_ros2 --ignore-src --rosdistro humble --skip-keys "ignition-plugin franka_ign_ros2_control" -y
 else
