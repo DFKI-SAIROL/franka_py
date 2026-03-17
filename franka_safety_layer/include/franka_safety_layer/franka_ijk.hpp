@@ -70,7 +70,7 @@ private:
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_velocity_pub_; 
   rclcpp::Publisher<franka_custom_msgs::msg::FIJKDebug>::SharedPtr debug_pub_; 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr safe_pose_pub_; ///< Safety-clamped target pose for CartesianController
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr safe_pose_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   // TF components
