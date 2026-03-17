@@ -702,6 +702,7 @@ environments:
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-intra-process-demo-0.20.5-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-limits-2.47.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-state-broadcaster-2.40.0-np126py311h2c3b307_7.conda
+      - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-state-publisher-2.4.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-trajectory-controller-2.40.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joy-3.3.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-kdl-parser-2.6.4-np126py311h2c3b307_7.conda
@@ -1603,6 +1604,7 @@ environments:
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-intra-process-demo-0.20.5-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-limits-2.47.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-state-broadcaster-2.40.0-np126py311h2c3b307_7.conda
+      - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-state-publisher-2.4.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-trajectory-controller-2.40.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joy-3.3.0-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-kdl-parser-2.6.4-np126py311h2c3b307_7.conda
@@ -2500,6 +2502,7 @@ environments:
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-intra-process-demo-0.33.5-np126py312h1758b5b_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-limits-4.32.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-state-broadcaster-4.26.0-np126py312he556185_7.conda
+      - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-state-publisher-2.4.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-trajectory-controller-4.26.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joy-3.3.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-kdl-parser-2.11.0-np126py312he556185_7.conda
@@ -3455,6 +3458,7 @@ environments:
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-intra-process-demo-0.33.5-np126py312h1758b5b_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-limits-4.32.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-state-broadcaster-4.26.0-np126py312he556185_7.conda
+      - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-state-publisher-2.4.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-trajectory-controller-4.26.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joy-3.3.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-kdl-parser-2.11.0-np126py312he556185_7.conda
@@ -4400,6 +4404,7 @@ environments:
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-intra-process-demo-0.33.5-np126py312h1758b5b_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-limits-4.32.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-state-broadcaster-4.26.0-np126py312he556185_7.conda
+      - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-state-publisher-2.4.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-trajectory-controller-4.26.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joy-3.3.0-np126py312he556185_7.conda
       - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-kdl-parser-2.11.0-np126py312he556185_7.conda
@@ -16119,6 +16124,26 @@ packages:
   license: BSD-3-Clause
   size: 158245
   timestamp: 1736212635290
+- conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-state-publisher-2.4.0-np126py311h2c3b307_7.conda
+  sha256: 0181d650b3308c6771620bf019754d02b0e0ab4149c18e62c3cfc18621108f55
+  md5: 0ff8e5cd79acad93d4373e1a8c6a3e6e
+  depends:
+  - python
+  - ros-humble-rclpy
+  - ros-humble-ros-workspace
+  - ros-humble-sensor-msgs
+  - ros-humble-std-msgs
+  - ros2-distro-mutex 0.6.* humble_*
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - libstdcxx >=14
+  - libgcc >=14
+  - python_abi 3.11.* *_cp311
+  - numpy >=1.26.4,<2.0a0
+  - ros2-distro-mutex >=0.6.0,<0.7.0a0
+  license: BSD-3-Clause
+  size: 43318
+  timestamp: 1736211607389
 - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-joint-trajectory-controller-2.40.0-np126py311h2c3b307_7.conda
   sha256: a9626f225bd4af6c29f0a071007701e6c424b7211660ba6717fa67c98f2b7f4b
   md5: 91c5bd4447647803fc7f9a995ae9b84c
@@ -24591,6 +24616,25 @@ packages:
   license: BSD-3-Clause
   size: 179879
   timestamp: 1749727754453
+- conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-state-publisher-2.4.0-np126py312he556185_7.conda
+  sha256: 42c1d86e86b734ba68c0d58722d623b3c74e8009d8df640fb4b80772ea968704
+  md5: 76f32118a9f26bcc1dd4a6b9935a07be
+  depends:
+  - python
+  - ros-jazzy-rclpy
+  - ros-jazzy-ros-workspace
+  - ros-jazzy-sensor-msgs
+  - ros-jazzy-std-msgs
+  - ros2-distro-mutex 0.9.* jazzy_*
+  - libstdcxx >=13
+  - libgcc >=13
+  - __glibc >=2.17,<3.0.a0
+  - ros2-distro-mutex >=0.9.0,<0.10.0a0
+  - numpy >=1.26.4,<2.0a0
+  - python_abi 3.12.* *_cp312
+  license: BSD-3-Clause
+  size: 46905
+  timestamp: 1749688366632
 - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-joint-trajectory-controller-4.26.0-np126py312he556185_7.conda
   sha256: 90c7d666429826db1f47bb1a01a6d49bac397bc62b9b4c8347224477f6c134c4
   md5: 58a860e27e7bee0a65a33323da4c5188
