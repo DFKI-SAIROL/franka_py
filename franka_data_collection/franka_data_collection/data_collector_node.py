@@ -17,8 +17,9 @@ from cv_bridge import CvBridge
 # Import message types for _process_msg
 from sensor_msgs.msg import JointState, Image
 from geometry_msgs.msg import PoseStamped
+from trajectory_msgs.msg import JointTrajectory
 from custom_interfaces.msg import RigSnapshot
-# from fmq_msgs.msg import FMQDebug # Will be added in a later step
+from franka_custom_msgs.msg import FMQDebug
 
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
@@ -57,6 +58,7 @@ class DataCollector(Node):
         self.is_recording = False
         self.episode_path = None
         self.teleop_input = False
+        self.teleop_active = {}
         
         # Trigger config
         self.trigger_topic_name = "target_cartesian_pose" 
@@ -240,10 +242,20 @@ class DataCollector(Node):
         with self.latest_data_lock:
             self.latest_data[logical_name] = data
 
-        # Check for Trigger
-        if self.has_trigger_topic and logical_name == self.trigger_logical_name:
-             self.teleop_input = True
-             self.sampling_callback()
+    @_process_msg.register
+    def _(self, msg: JointTrajectory, logical_name):
+        data = {}
+        fields = self.topic_fields.get(logical_name, ['position', 'velocity'])
+        
+        # Gripper controllers usually send 1 point with the target positions
+        if len(msg.points) > 0:
+            if 'position' in fields and msg.points[0].positions:
+                data['position'] = np.array(msg.points[0].positions, dtype=np.float64)
+            if 'velocity' in fields and msg.points[0].velocities:
+                data['velocity'] = np.array(msg.points[0].velocities, dtype=np.float64)
+            
+        with self.latest_data_lock:
+            self.latest_data[logical_name] = data
 
     @_process_msg.register
     def _(self, msg: Image, logical_name):
@@ -292,16 +304,29 @@ class DataCollector(Node):
         with self.latest_data_lock:
             self.latest_data[logical_name] = data
 
+    @_process_msg.register
+    def _(self, msg: FMQDebug, logical_name):
+        self.teleop_active[logical_name] = msg.movement_enabled
+        data = {}
+        fields = self.topic_fields.get(logical_name, ['delta_position', 'delta_orientation'])
+        
+        if 'delta_position' in fields:
+            data['delta_position'] = np.array([msg.delta_target_pose.position.x, msg.delta_target_pose.position.y, msg.delta_target_pose.position.z])
+            
+        if 'delta_orientation' in fields:
+            data['delta_orientation'] = np.array([msg.delta_target_pose.orientation.x, msg.delta_target_pose.orientation.y, msg.delta_target_pose.orientation.z, msg.delta_target_pose.orientation.w])
+            
+        with self.latest_data_lock:
+            self.latest_data[logical_name] = data
+
     def sampling_callback(self):
         if not self.is_recording:
             return
 
-        # If event driven, we ONLY record if teleop_input is true
-        if self.has_trigger_topic:
-            if not self.teleop_input:
-                return
-            # Reset flag immediately
-            self.teleop_input = False
+        # Pure state-driven gating: stop appending data to avoid logging endless zeros in standstill.
+        # This properly supports bimanual arrays because it pauses only if NO controllers are moving.
+        if self.teleop_active and not any(self.teleop_active.values()):
+            return
 
         # Snapshot the latest data
         with self.latest_data_lock:
@@ -334,10 +359,10 @@ class DataCollector(Node):
                         # Collect all values for this key
                         vals = [item[k] if item is not None else np.nan for item in buffer_list] 
                         try:
-                            # Attempt to stack
-                            stacked[k] = np.array(vals)
+                            # Try standard stacking
+                            stacked[k] = np.stack(vals)
                         except:
-                            # Fallback to object array
+                            # Fallback if dimensions vary (like variable length trajectory points)
                             stacked[k] = np.array(vals, dtype=object)
                     
                     np.save(save_path, stacked)
@@ -349,6 +374,7 @@ class DataCollector(Node):
             
             # Clear buffer
             buffer_list.clear()
+        self.get_logger().info('Finished saving data to disk...')
 
 def main(args=None):
     rclpy.init(args=args)

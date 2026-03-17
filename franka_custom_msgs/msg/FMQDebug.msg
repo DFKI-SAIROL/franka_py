@@ -11,5 +11,4 @@ geometry_msgs/Pose robot_origin
 geometry_msgs/Pose robot_pose
 
 geometry_msgs/Pose robot_target_pose
-
-
+geometry_msgs/Pose delta_target_pose

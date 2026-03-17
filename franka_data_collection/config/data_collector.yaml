@@ -1,23 +1,43 @@
 node_name: "data_collector"
 logging_rate: 30.0 # Hz
-storage_path: "/home/csil/projects/bimanual/data/pick_and_place"
+storage_path: "/home/csil/projects/bimanual/data/pick_and_place_duplo_tiles"
 
 topics:
   observations:
     fr3_joint_states:
       topic: "/franka_right/franka/joint_states"
       msg_type: "sensor_msgs/msg/JointState"
+      fields:
+        - position
+        - velocity
     gripper_joint_states:
       topic: "/franka_right/franka_gripper/joint_states"
       msg_type: "sensor_msgs/msg/JointState"
+      fields:
+        - position
+        - velocity
     # Example of image topic
     synced_snapshot:
       topic: "/zed_rig/synced_raw_snapshot"
       msg_type: "custom_interfaces/msg/RigSnapshot"
+      fields:
+        - zed_right_arm
+        - zed_middle
   actions:
+    delta_cartesian_action:
+      topic: "/franka_right/mq_debug"
+      msg_type: "franka_custom_msgs/msg/FMQDebug"
+      fields:
+        - delta_position
+        - delta_orientation
+    gripper_actions:
+      topic: "/franka_right/gripper/gripper_controller/joint_trajectory"
+      msg_type: "trajectory_msgs/msg/JointTrajectory"
+      fields:
+        - position
     target_cartesian_pose:
       topic: "/franka_right/target_pose"
       msg_type: "geometry_msgs/msg/PoseStamped"
-    # pass:
-    #   topic: "/joint_states" # Placeholder to make sure we have structure
-    #   msg_type: "sensor_msgs/msg/JointState"
+      fields:
+        - position
+        - orientation
