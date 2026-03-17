@@ -46,7 +46,7 @@ def generate_robot_nodes(context):
                     namespace=config['namespace'],
                     parameters=[{
                         'arm_id': str(config['arm_id']),
-                        'arm_prefix': str(config['arm_prefix']),
+                        'arm_prefix': str(config['namespace']),
                         'init_joint_position': config['init_joint_position'],
                         'bypass_safety': bypass_safety,
                     }],
@@ -63,7 +63,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'robot_config_file',
             default_value=PathJoinSubstitution([
-                FindPackageShare('franka_launch'), 'config', 'franka.config.yaml'
+                FindPackageShare('franka_launch'), 'config', 'dfki_bimanual.yaml'
             ]),
             description='Path to the robot configuration file to load',
         ),

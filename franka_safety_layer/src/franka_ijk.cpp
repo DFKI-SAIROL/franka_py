@@ -4,13 +4,13 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
 {
 
   // Setup Publisher and Subscriber
-  target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("target_cartesian_pose", 1, std::bind(&Franka_IJK::targetPoseCallback, this, std::placeholders::_1));
+  target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("target_pose", 1, std::bind(&Franka_IJK::targetPoseCallback, this, std::placeholders::_1));
   joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("joint_states", 1, std::bind(&Franka_IJK::jointStateCallback, this, std::placeholders::_1));
         
   joint_velocity_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("franka_joint_trajectory_controller/joint_trajectory", 1);
   debug_pub_ = this->create_publisher<franka_custom_msgs::msg::FIJKDebug>("fijk_debug", 1);
-
-  marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("safety_vis", 10); // 10 important as multiple things are published fast
+  marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("safety_vis", 10);
+  safe_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("safe_target_pose", 1);
 
   // TF Setup (for current pose access)
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -496,6 +496,15 @@ void Franka_IJK::controlLoop()
 
   // --- 5. Publish Command ---
   publishCommand(dq);
+
+  // --- 6. Publish safety-clamped target pose for cartesian_impedance_controller ---
+  {
+    geometry_msgs::msg::PoseStamped safe_pose_msg;
+    safe_pose_msg.header.stamp = this->get_clock()->now();
+    safe_pose_msg.header.frame_id = target_frame_;
+    safe_pose_msg.pose = convert(safe_target_se3);
+    safe_pose_pub_->publish(safe_pose_msg);
+  }
 
   publishDebugInfos(current_se3, target_se3_, safe_target_se3, desired_cartesian_velocity, dq);
 
