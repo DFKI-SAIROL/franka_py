@@ -1,93 +1,97 @@
-# frankapy
+- [1. frankapy](#1-frankapy)
+  - [1.1. Info - Main modules](#11-info---main-modules)
+    - [1.1.1. franka\_launch](#111-franka_launch)
+    - [1.1.2. franka\_meta\_quest](#112-franka_meta_quest)
+    - [1.1.3. franka\_joint\_trajectory\_controller](#113-franka_joint_trajectory_controller)
+    - [1.1.4. franka\_safety\_layer](#114-franka_safety_layer)
+  - [1.2. Info - Helper and old modules](#12-info---helper-and-old-modules)
+    - [1.2.1. franka\_adaptable\_controllers](#121-franka_adaptable_controllers)
+    - [1.2.2. franka\_control\_module](#122-franka_control_module)
+    - [1.2.3. franka\_custom\_msgs](#123-franka_custom_msgs)
+    - [1.2.4. franka\_visulazation](#124-franka_visulazation)
+  - [1.3. Starting the nodes](#13-starting-the-nodes)
+  - [1.4. Installation](#14-installation)
 
 
+# 1. frankapy
 
-## Getting started
+This package aims to simplify the use of the franka research 3 robots by providing controllers, launch and configuration files for single and bimanual setup
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+In the whole repository three namespaces are used. For the single setup NS='franka_main' an for the bimanual setup its 'franka_left' and 'franka_right'.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+The current development is still not finished and only partly tested for the bimanual setup, there may be some small changes required to make the single setup work.
 
-## Add your files
+## 1.1. Info - Main modules
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+### 1.1.1. franka_launch
 
-```
-cd existing_repo
-git remote add origin https://git.ias.informatik.tu-darmstadt.de/ros2/franka/frankapy.git
-git branch -M main
-git push -uf origin main
-```
+franka_launch is our customized version of franka_bringup and contains the launch and configuration files for starting the robot.
 
-## Integrate with your tools
+To start the robot in simulation, the parameter ```use_fake_hardware:=true``` can be used.
+However it is worth noting that the robot behaves fundamentally differently in simulation. Most of the commands check are not evaluated in this mode and therefore developing the robot's control in simulation does not work very well. Higher-level software can be tested in simulation once the lower-level control is working on the robot.
 
-- [ ] [Set up project integrations](https://git.ias.informatik.tu-darmstadt.de/ros2/franka/frankapy/-/settings/integrations)
+The robot simulation provided by frankarobotics only supports position and velocity control. Therefore, when using the simulation, in the controllers.yaml the command_interfaces of the desired controller needs to be changed from "effort" to "position". Else the robot wont move. 
 
-## Collaborate with your team
+### 1.1.2. franka_meta_quest
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+franka_meta_quest contains the python scripts for teleoperation using the meta quest.
+This is adapted from the https://github.com/droid-dataset/droid repository.
+Currently it publishes the teleoperated target pose using a geometry_msgs.msg.PoseStamped on the topic 'NS/target_cartesian_pose'.
 
-## Test and Deploy
+For the tracking of the joysticks to work well, it is important that the meta quest is placed stationary such that the joysticks are visible by its camera system.
 
-Use the built-in continuous integration in GitLab.
+### 1.1.3. franka_joint_trajectory_controller
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+This package is used for interpolating the 15-50Hz commands to the robot's required 1000Hz.
+The package is copied from the joint_trajectory_controller and is adapted to support the namespaces required when using the bimanual setup.
 
-***
+### 1.1.4. franka_safety_layer
 
-# Editing this README
+This package contains the safety layer that enables the safe execution of cartesian poses (and twists). This can be used to allow data collection / teleoperation, model training and inference on the robot. 
+For this, the cartesian target is checked for safety violations and adjusted and then joint commands are computed with an Inverse Jacobian with Nullspace-Control approach.
+The joint commands are interpolated and executed by the franka_joint_trajectory_controller.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## 1.2. Info - Helper and old modules
 
-## Suggestions for a good README
+### 1.2.1. franka_adaptable_controllers
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+This package was used to test the robot's position control interface by adapting one of the provided franka_example_controllers to accept target positions with a ros2 subscriber and manually interpolating between the last and new command. We found that using the franka_joint_trajectory_controller is the better way to do this and do not use this package anymore.
 
-## Name
-Choose a self-explaining name for your project.
+### 1.2.2. franka_control_module 
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+This package contains two nodes which can publish simple motions in the cartesian or joint space for testing and debugging.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+franka_control_module started by start.launch.py is used to publish joint commands for checking basic movements of the franka_joint_trajectory_controller and the robot.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+franka_cartesian_module started by cartesian.launch.py publishes figure 8 movements in cartesian space and is used during the development of the safety layer for testing the inverse jacobian approach and the safety bounds.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+### 1.2.3. franka_custom_msgs
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+This package defines custom ros2 messages used for debugging the nodes, for example using plotjuggler.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### 1.2.4. franka_visulazation
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+The visualization node draws a visualization_msgs::Marker line and an arrow to visualize the endeffectors pose and movement.
+For this is subscibes to the cartesian_target_pose of the teleoperation and the "safe cartesian target pose" adjusted by the safety layer and the actual tf pose of the endeffector and visualizes all three using an arrow to show the current pose and a line to show the recent positions. 
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## 1.3. Starting the nodes
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+The robot can be started using ``` ros2 launch franka_launch example.launch.py spawn_franka_left:=<false|true>     spawn_franka_right:=<true|true>     use_fake_hardware:=<false|true> ```.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+The safety-layer-node can be started using ``` ros2 launch franka_safety_layer start_ijk.launch.py spawn_franka_left:=<false|true> spawn_franka_right:=<false|true> bypass_safety:<false|true>```. 
 
-## License
-For open source projects, say how it is licensed.
+The teleoperation-node can be started using ``` ros2 launch franka_meta_quest start.launch.py ``` when the meta quest is connected via usb and usb-debugging is enabled on the meta quest. 
+For testing, the cartesian-control-module-node can be started using ``` ros2 launch franka_control_module cartesian.launch.py ```. 
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+The visualization can be started using ``` ros2 launch franka_visualization pose_lines.launch.py ```.
+
+In the current development stage it is important to be able to start and restart different nodes in seperate terminals individually, in a later stage the launch files can be merged to simplify starting the system.
+
+## 1.4. Installation
+
+For the installation, please follow the steps in the [officical franka ros2 repo](https://github.com/frankarobotics/franka_ros2/blob/jazzy/README.md).
+
+Furthermore, for the meta quest communication the "ABD-Client" needs to be installed using ```pip install pure-python-adb```, ideally in a conda environment.
+
+TODO extended installation documentation for the conda env conaining everything from ros2 to pinocchio, pure-python-adb. 

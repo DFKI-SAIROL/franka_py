@@ -1,0 +1,23 @@
+node_name: "data_collector"
+logging_rate: 30.0 # Hz
+storage_path: "/home/csil/projects/bimanual/data/pick_and_place"
+
+topics:
+  observations:
+    fr3_joint_states:
+      topic: "/franka_right/franka/joint_states"
+      msg_type: "sensor_msgs/msg/JointState"
+    gripper_joint_states:
+      topic: "/franka_right/franka_gripper/joint_states"
+      msg_type: "sensor_msgs/msg/JointState"
+    # Example of image topic
+    synced_snapshot:
+      topic: "/zed_rig/synced_raw_snapshot"
+      msg_type: "custom_interfaces/msg/RigSnapshot"
+  actions:
+    target_cartesian_pose:
+      topic: "/franka_right/target_pose"
+      msg_type: "geometry_msgs/msg/PoseStamped"
+    # pass:
+    #   topic: "/joint_states" # Placeholder to make sure we have structure
+    #   msg_type: "sensor_msgs/msg/JointState"
