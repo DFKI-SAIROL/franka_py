@@ -724,6 +724,7 @@ environments:
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-lifecycle-msgs-1.2.1-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-logging-demo-0.20.5-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-map-msgs-2.1.0-np126py311h2c3b307_7.conda
+      - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-mcap-vendor-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-message-filters-4.3.5-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-moveit-2.5.7-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-moveit-common-2.5.7-np126py311h2c3b307_7.conda
@@ -837,6 +838,7 @@ environments:
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-py-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-storage-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-storage-default-plugins-0.15.13-np126py311h2c3b307_7.conda
+      - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-storage-mcap-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-transport-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosgraph-msgs-1.2.1-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosidl-adapter-3.1.6-np126py311h2c3b307_7.conda
@@ -1626,6 +1628,7 @@ environments:
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-lifecycle-msgs-1.2.1-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-logging-demo-0.20.5-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-map-msgs-2.1.0-np126py311h2c3b307_7.conda
+      - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-mcap-vendor-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-message-filters-4.3.5-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-moveit-2.5.7-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-moveit-common-2.5.7-np126py311h2c3b307_7.conda
@@ -1739,6 +1742,7 @@ environments:
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-py-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-storage-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-storage-default-plugins-0.15.13-np126py311h2c3b307_7.conda
+      - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-storage-mcap-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-transport-0.15.13-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosgraph-msgs-1.2.1-np126py311h2c3b307_7.conda
       - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosidl-adapter-3.1.6-np126py311h2c3b307_7.conda
@@ -16584,6 +16588,23 @@ packages:
   license: BSD-3-Clause
   size: 206565
   timestamp: 1736209658589
+- conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-mcap-vendor-0.15.13-np126py311h2c3b307_7.conda
+  sha256: ccddd215a917863099704b0587895ac5b780ac1e08e9f383ab9f5a8e018b0b63
+  md5: 5c7cfabcb3e59bb6b701d2be476fdb9d
+  depends:
+  - python
+  - ros-humble-ros-workspace
+  - ros-humble-zstd-vendor
+  - ros2-distro-mutex 0.6.* humble_*
+  - libstdcxx >=14
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - ros2-distro-mutex >=0.6.0,<0.7.0a0
+  - python_abi 3.11.* *_cp311
+  - numpy >=1.26.4,<2.0a0
+  license: BSD-3-Clause
+  size: 270583
+  timestamp: 1736207440048
 - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-message-filters-4.3.5-np126py311h2c3b307_7.conda
   sha256: 3fd35f9f8c8034afd220130f2dcab1b40e51287a6c6979afdb866565ad489754
   md5: a365a500e291eb81d1f2d601f3aca985
@@ -19312,6 +19333,28 @@ packages:
   license: BSD-3-Clause
   size: 125831
   timestamp: 1736210994133
+- conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-storage-mcap-0.15.13-np126py311h2c3b307_7.conda
+  sha256: 8c26381eb4f7e0c5e1d52bd09b9b4d4df4ecdf1bf6c8b65fdadd402af1ebea2e
+  md5: 781b7b531b20ca6e1a8eb0c12fc28dc0
+  depends:
+  - python
+  - ros-humble-ament-index-cpp
+  - ros-humble-mcap-vendor
+  - ros-humble-pluginlib
+  - ros-humble-rcutils
+  - ros-humble-ros-workspace
+  - ros-humble-rosbag2-storage
+  - ros2-distro-mutex 0.6.* humble_*
+  - libstdcxx >=14
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - ros2-distro-mutex >=0.6.0,<0.7.0a0
+  - numpy >=1.26.4,<2.0a0
+  - python_abi 3.11.* *_cp311
+  license: BSD-3-Clause
+  size: 164957
+  timestamp: 1736210980498
 - conda: https://prefix.dev/robostack-humble/linux-64/ros-humble-rosbag2-transport-0.15.13-np126py311h2c3b307_7.conda
   sha256: dba49cad737e6d721fa47a4e9fd59d77f2b7c58ee7d0060f9555c04ffbf304b7
   md5: 67c0aad8a7c42912037119c4cf253999
