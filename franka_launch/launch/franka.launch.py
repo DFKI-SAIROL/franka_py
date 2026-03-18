@@ -123,8 +123,7 @@ def generate_robot_nodes(context):
             ],
             remappings=[
                 ('~/robot_description', 'robot_description'),
-                ('joint_states', joint_state_publisher_sources[0]),
-                ('/franka_right/target_pose', 'safe_target_pose')
+                ('joint_states', joint_state_publisher_sources[0])
             ],
             output='screen',
             on_exit=Shutdown(),
