@@ -65,6 +65,7 @@ rosdep = "*"
 libstdcxx-ng = "*"
 setuptools = ">=65.0.0,<70.0.0"
 ros-humble-moveit = "*"
+ros-humble-plotjuggler-ros = ">=2.1.0,<3"
 
 [feature.humble.pypi-dependencies]
 viser = ">=1.0.16, <2"

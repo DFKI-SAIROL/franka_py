@@ -43,7 +43,7 @@ class CartesianPosePublisher(Node):
         self.end_effector_frame = self.get_parameter('end_effector_frame').get_parameter_value().string_value
         
         self.base_frame = "world"
-        self.end_effector_frame = "rh_p12_rn_base"
+        self.end_effector_frame = "rh_p12_rn_grasp_point"
 
         print(self.base_frame)
         print(self.end_effector_frame)
@@ -56,7 +56,7 @@ class CartesianPosePublisher(Node):
 
         self.joint_subscriber_ = self.create_subscription(JointState, self.ns + '/franka/joint_states', self.joint_state_callback, 1)
         self.gripper_subscriber_ = self.create_subscription(JointState, self.ns + '/franka_gripper/joint_states', self.gripper_state_callback, 1)
-        self.publisher_ = self.create_publisher(PoseStamped, self.ns + '/target_pose', 1)
+        self.target_pose_publisher_ = self.create_publisher(PoseStamped, self.ns + '/target_pose', 1)
         self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
         self.debug_publisher_ = self.create_publisher(FMQDebug, self.ns + '/mq_debug', 1)
         # TODO: add YAML
@@ -287,7 +287,7 @@ class CartesianPosePublisher(Node):
         msg.header.frame_id = self.base_frame
         msg.pose.position =  self.to_ros_point(translation)
         msg.pose.orientation = self.to_ros_quat(rotation)
-        self.publisher_.publish(msg)
+        self.target_pose_publisher_.publish(msg)
 
         # Broadcast Target Pose TF for RViz
         t = TransformStamped()

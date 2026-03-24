@@ -260,7 +260,7 @@
         - fr3_joint6
         - fr3_joint7
 
-      end_effector_frame: rh_p12_rn_base # fr3_hand_tcp
+      end_effector_frame: rh_p12_rn_grasp_point # fr3_hand_tcp
       base_frame: base
 
       filter:

@@ -35,6 +35,16 @@
       </inertial>
     </link>
 
+    <!-- Grasp Point Joint -->
+    <joint name="${prefix}rh_p12_rn_grasp_point_joint" type="fixed">
+      <parent link="${prefix}rh_p12_rn_base"/>
+      <child link="${prefix}rh_p12_rn_grasp_point"/>
+      <origin xyz="0 0 0.10" rpy="0 0 0"/>
+    </joint>
+
+    <!-- Grasp Point Link -->
+    <link name="${prefix}rh_p12_rn_grasp_point"/>
+
     <!-- Joint -->
     <joint name="${prefix}rh_r1" type="revolute">
       <parent link="${prefix}rh_p12_rn_base"/>
