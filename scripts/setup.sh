@@ -43,3 +43,11 @@ if [ ! -d "dynamixel_interfaces" ]; then
 else
     echo "dynamixel_interfaces folder already exists, skipping clone."
 fi
+
+if ! command -v scrcpy &> /dev/null || [ "$(scrcpy --version | head -n 1 | grep -o '1\.')" = "1." ]; then
+    echo "Installing scrcpy from snap (v3.x required for audio)..."
+    sudo apt remove -y scrcpy
+    sudo snap install scrcpy
+else
+    echo "Modern scrcpy is already installed, skipping."
+fi

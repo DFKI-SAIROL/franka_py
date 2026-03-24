@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'oculus_action_main = franka_meta_quest.oculus_action.main:main',
+            'meta_quest_audio_publisher = franka_meta_quest.oculus_action.audio_publisher:main',
         ],
     },
 )

@@ -79,7 +79,7 @@ For this is subscibes to the cartesian_target_pose of the teleoperation and the 
 
 The robot can be started using ``` ros2 launch franka_launch example.launch.py spawn_franka_left:=<false|true>     spawn_franka_right:=<true|true>     use_fake_hardware:=<false|true> ```.
 
-The safety-layer-node can be started using ``` ros2 launch franka_safety_layer start_ijk.launch.py spawn_franka_left:=<false|true> spawn_franka_right:=<false|true> bypass_safety:<false|true>```. 
+The safety-layer-node can be started using ``` ros2 launch franka_safety_layer start_ijk.launch.py spawn_franka_left:=<false|true> spawn_franka_right:=<false|true> bypass_safety:=<false|true>```. 
 
 The teleoperation-node can be started using ``` ros2 launch franka_meta_quest start.launch.py ``` when the meta quest is connected via usb and usb-debugging is enabled on the meta quest. 
 For testing, the cartesian-control-module-node can be started using ``` ros2 launch franka_control_module cartesian.launch.py ```. 

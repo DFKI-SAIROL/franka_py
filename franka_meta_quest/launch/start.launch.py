@@ -29,6 +29,18 @@ def generate_robot_nodes(context):
             name='oculus_action_'+item_name,
             namespace=item_name,
             output='screen',
+            remappings=[
+                ('tf', '/tf'),
+                ('tf_static', '/tf_static')
+            ]
+        ))
+        
+        nodes.append(Node(
+            package='franka_meta_quest',
+            executable='meta_quest_audio_publisher',
+            name='oculus_audio_'+item_name,
+            namespace=item_name,
+            output='screen',
         ))
     return nodes
 
