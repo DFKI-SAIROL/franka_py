@@ -39,7 +39,7 @@ def generate_robot_nodes(context):
     arm_prefix = robot_config.get('arm_prefix', '')
     arm_id = robot_config.get('arm_id', 'fr3')
 
-    arm_controller = robot_config.get('arm_controller', 'cartesian_impedance_controller')
+    arm_controller = robot_config.get('arm_controller', 'joint_impedance_controller')
 
     load_franka_gripper = gripper_type == 'franka_default'
     use_fake_hardware_launch_configuration = LaunchConfiguration('use_fake_hardware').perform(context)

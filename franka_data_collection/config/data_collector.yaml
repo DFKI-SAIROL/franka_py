@@ -1,11 +1,12 @@
 node_name: "data_collector"
 logging_rate: 30.0 # Hz
-storage_path: "/home/csil/projects/bimanual/data/pick_and_place_duplo_tiles"
+storage_path: "/home/csil/projects/bimanual/data/pick_and_place_duplo_joint"
 
 topics:
   - "/franka_right/franka/joint_states"
   - "/franka_right/franka_gripper/joint_states"
   - "/zed_rig/synced_raw_snapshot"
   - "/franka_right/mq_debug"
+  - "franka_right/fijk_debug"
   - "/franka_right/gripper/gripper_controller/joint_trajectory"
   - "/franka_right/target_pose"

@@ -61,13 +61,13 @@ private:
   void controlLoop();
 
   void publishCommand(const Eigen::VectorXd& dq);
-  void publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, pinocchio::SE3 &safe_target_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq);
+  void publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, pinocchio::SE3 &safe_target_se3, pinocchio::SE3 &tf_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq);
 
   // ROS 2 components
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscriber_, other_joint_state_subscriber_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr other_robot_description_subscriber_;
-  rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_velocity_pub_; 
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr target_joint_pub;
   rclcpp::Publisher<franka_custom_msgs::msg::FIJKDebug>::SharedPtr debug_pub_; 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr safe_pose_pub_;
@@ -93,29 +93,22 @@ private:
   pinocchio::SE3 target_se3_; // Target pose (Pinocchio format)
 
   Eigen::VectorXd q_;          // Current joint configuration (assumed/integrated state)
+  Eigen::VectorXd q_cmd_;      // Accumulated command for integration
   Eigen::VectorXd q_init_;     // Initial joint configuration for nullspace posture control
 
   bool use_ik = false;
-  double joint_velocity_limit_ = 0.6; // Max joint velocity in rad/s
+  double joint_velocity_limit_ = 1.0; // Max joint velocity in rad/s
   double cartesian_velocity_limit_ = 1.0; // Max end-effector velocity in m/s
   double ema_alpha_ = 1.0; // EMA filter alpha
   Eigen::VectorXd dq_filtered_;
   bool first_run_ = true;
 
-  // Virtual State for noise filtering
-  Eigen::VectorXd q_v_;          // Virtual/Smooth internal joint state
-  bool initialized_v_ = false;
-  double sync_gain_ = 0.35;       // Drift correction gain (pulls q_v -> q_real)
-  double dq_filter_gain_ = 0.1;  // Output velocity filter gain (0.0 < g <= 1.0)
-
   // Control gains
   const double K_NULL = 0.1;  // Gain for nullspace posture task (Secondary Task)
 
   // for the joystick
-  const double frequency = 15; // keep it as it is in the meta quest
-  const double TIME_STEP = 1.0 / frequency; // Control loop frequency (15 Hz)
-  const double MOTION_TIME_STEP = 1.0 * TIME_STEP; 
-  const double FINAL_TIME_STEP = 1.1 * TIME_STEP;
+  rclcpp::Time last_time_{0, 0, RCL_ROS_TIME};
+  double dt_ = 1.0 / 50.0;
 
   bool bypass_safety_ = false;
 

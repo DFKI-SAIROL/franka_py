@@ -7,7 +7,7 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("target_pose", 1, std::bind(&Franka_IJK::targetPoseCallback, this, std::placeholders::_1));
   joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("joint_states", 1, std::bind(&Franka_IJK::jointStateCallback, this, std::placeholders::_1));
         
-  joint_velocity_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("franka_joint_trajectory_controller/joint_trajectory", 1);
+  target_joint_pub = this->create_publisher<sensor_msgs::msg::JointState>("target_joint", 1);
   debug_pub_ = this->create_publisher<franka_custom_msgs::msg::FIJKDebug>("fijk_debug", 1);
   marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("safety_vis", 10);
   safe_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("safe_target_pose", 1);
@@ -55,14 +55,6 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   q_init_ = Eigen::Map<Eigen::VectorXd>(init_joint_position_vec.data(), 7);
   RCLCPP_INFO(this->get_logger(), "Initial joint position loaded for nullspace control.");
 
-  this->declare_parameter("drift_correction_gain", 1.0);
-  sync_gain_ = this->get_parameter("drift_correction_gain").as_double();
-  
-  this->declare_parameter("dq_filter_gain", 1.0);
-  dq_filter_gain_ = this->get_parameter("dq_filter_gain").as_double();
-
-  RCLCPP_INFO(this->get_logger(), "Virtual State initialized. K_SYNC: %f, K_FILTER: %f", sync_gain_, dq_filter_gain_);
-
   // Load Pinocchio Model
   if (!loadPinocchioModel()) {
     RCLCPP_FATAL(this->get_logger(), "Failed to load Pinocchio model. Shutting down.");
@@ -88,6 +80,9 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
     auto init_cartesian = computeForwardKinematic(q_init_).translation();
     safety_layer_.init(init_cartesian, marker_pub_);
   }
+
+  timer_ = this->create_wall_timer(
+    5ms, std::bind(&Franka_IJK::controlLoop, this));
 
   RCLCPP_INFO(this->get_logger(), "franka_ijk initialized.");
 }
@@ -130,7 +125,7 @@ bool Franka_IJK::loadPinocchioModel()
     return false;
   }
 
-  std::string end_effector_link_ = arm_prefix_ + "fr3_link8";
+  std::string end_effector_link_ = arm_prefix_ + "rh_p12_rn_grasp_point";
 
   if (!model_.existFrame(end_effector_link_)) {
     RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", end_effector_link_.c_str());
@@ -145,7 +140,17 @@ bool Franka_IJK::loadPinocchioModel()
 void Franka_IJK::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
   RCLCPP_INFO_ONCE(this->get_logger(), "Got joint state");
-  q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), model_.nv);
+  if (q_.size() != model_.nv) {
+    q_ = Eigen::VectorXd::Zero(model_.nv);
+  }
+  for (size_t i = 0; i < msg->name.size(); ++i) {
+    if (model_.existJointName(msg->name[i])) {
+      int idx_q = model_.joints[model_.getJointId(msg->name[i])].idx_q();
+      if (idx_q >= 0 && idx_q < model_.nq) {
+        q_(idx_q) = msg->position[i];
+      }
+    }
+  }
 }
 
 
@@ -172,7 +177,7 @@ void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::Share
   RCLCPP_INFO_ONCE(this->get_logger(), "Got and transformed target state");
   
   // run the control loop every time when target_cartesian_pose is published
-  controlLoop();
+  // controlLoop();
 }
 
 
@@ -181,7 +186,17 @@ void Franka_IJK::otherJointStateCallback(const sensor_msgs::msg::JointState::Sha
 {
   RCLCPP_INFO_ONCE(this->get_logger(), "Other joint cb");
   if (!bypass_safety_) {
-    safety_layer_.other_q_ = Eigen::Map<Eigen::VectorXd>(msg->position.data(), 7);
+    if (safety_layer_.other_q_.size() != safety_layer_.other_model_.nv) {
+      safety_layer_.other_q_ = Eigen::VectorXd::Zero(safety_layer_.other_model_.nv);
+    }
+    for (size_t i = 0; i < msg->name.size(); ++i) {
+      if (safety_layer_.other_model_.existJointName(msg->name[i])) {
+        int idx_q = safety_layer_.other_model_.joints[safety_layer_.other_model_.getJointId(msg->name[i])].idx_q();
+        if (idx_q >= 0 && idx_q < safety_layer_.other_model_.nq) {
+          safety_layer_.other_q_(idx_q) = msg->position[i];
+        }
+      }
+    }
   }
 }
 
@@ -223,14 +238,14 @@ bool Franka_IJK::loadOtherPinocchioModel(std::string other_ns)
     return false;
   }
 
-  std::string end_effector_link_ = other_ns + "_fr3_link8";
+  std::string other_end_effector_link_ = other_ns + "_fr3_link8";
 
-  if (!safety_layer_.other_model_.existFrame(end_effector_link_)) {
-    RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", end_effector_link_.c_str());
+  if (!safety_layer_.other_model_.existFrame(other_end_effector_link_)) {
+    RCLCPP_ERROR(this->get_logger(), "End effector link '%s' not found in model.", other_end_effector_link_.c_str());
     return false;
   }
 
-  safety_layer_.other_ee_frame_id_ = safety_layer_.other_model_.getFrameId(end_effector_link_);
+  safety_layer_.other_ee_frame_id_ = safety_layer_.other_model_.getFrameId(other_end_effector_link_);
   return true;
 }
 
@@ -326,8 +341,8 @@ double Franka_IJK::computeCartesianVelocity(
   
   // Build the 6D desired velocity V = K * e
   desired_cartesian_velocity = Eigen::VectorXd::Zero(6);
-  desired_cartesian_velocity.head<3>() = lin_world_error / MOTION_TIME_STEP;
-  desired_cartesian_velocity.tail<3>() = angular_world_error / MOTION_TIME_STEP;
+  desired_cartesian_velocity.head<3>() = 5.0 * lin_world_error; // / dt_;
+  desired_cartesian_velocity.tail<3>() = 5.0 * angular_world_error; // / dt_;
 
   double target_reachable_factor = 1;
 
@@ -363,7 +378,7 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
 {
 
   // 1. Update Kinematics (needed for Jacobian calculation)
-  pinocchio::computeAllTerms(model_, *data_, q_v_, Eigen::VectorXd::Zero(model_.nv));
+  pinocchio::computeAllTerms(model_, *data_, q_cmd_, Eigen::VectorXd::Zero(model_.nv));
 
   // 2. Compute the Jacobian matrix (6xN, N=DOF)
   Eigen::MatrixXd J(6, model_.nv);
@@ -371,18 +386,21 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
   pinocchio::getFrameJacobian(model_, *data_, ee_frame_id_, pinocchio::LOCAL_WORLD_ALIGNED, J);
 
   // 3. Compute the Damped Least Squares Pseudo-Inverse (J_dagger)
-  const double lambda = 1e-6; // Damping factor for DLS
+  const double lambda = 0.0001; //1e-6; // Damping factor for DLS
   Eigen::MatrixXd J_dagger = J.transpose() * (J * J.transpose() + lambda * Eigen::MatrixXd::Identity(6, 6)).inverse();
 
   // 4. Primary Task: Cartesian Velocity
   Eigen::VectorXd dq_prim = J_dagger * desired_cartesian_velocity;
+
+  // Check for inaccuracies in inverse kinematics
+  Eigen::VectorXd achieved_cartesian_velocity = J * dq_prim;
 
   // 5. Secondary Task: Nullspace Posture Control
   // 5.2. Compute the Nullspace Projector: N = I - J_dagger * J
   Eigen::MatrixXd N = Eigen::MatrixXd::Identity(model_.nv, model_.nv) - J_dagger * J;
 
   // 5.3. Secondary Task Velocity (Posture Control): dq_null_task = K_NULL * (q_init - q_curr)
-  Eigen::VectorXd joint_error_posture = q_init_ - q_v_;
+  Eigen::VectorXd joint_error_posture = q_init_ - q_cmd_;
   Eigen::VectorXd dq_null_task = K_NULL * joint_error_posture;
 
   // 5.4. Projected Nullspace Command: dq_null = N * dq_null_task
@@ -396,54 +414,56 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
 
 void Franka_IJK::controlLoop()
 {
-
-  if (q_.size() == 0 || q_.allFinite() == false) {
+  // 1. Safety Checks: Do we have valid joint states yet?
+  if (q_.size() == 0 || !q_.allFinite()) {
     return;
   }
 
-  // Initialize Virtual State if needed
-  if (!initialized_v_) {
-    if (q_.size() == model_.nv) {
-      q_v_ = q_;
-      dq_filtered_ = Eigen::VectorXd::Zero(model_.nv);
-      initialized_v_ = true;
-      RCLCPP_INFO(this->get_logger(), "Internal Virtual State Initialized.");
-    } else {
-      return; 
-    }
+  if (q_cmd_.size() == 0) {
+    q_cmd_ = q_;
   }
 
-  // --- Drift Correction ---
-  // Gently pull virtual state to real state (Leaky Integrator on Position)
-  if (sync_gain_ > 0.0) {
-      q_v_ += sync_gain_ * (q_ - q_v_);
+  // 2. Time management
+  auto current_time = this->get_clock()->now();
+  if (last_time_.nanoseconds() == 0) {
+    last_time_ = current_time;
+    return; // Skip the first tick to get a clean dt_ next time
   }
 
-  // --- 1. Update Kinematics and Dynamics (Gravity) ---
-  // Ensure gravity vector data_->g is updated every cycle for dynamic effort
-  // We use q_v_ for consistency, so gravity compensation is smooth
-  pinocchio::computeGeneralizedGravity(model_, *data_, q_v_);
+  dt_ = (current_time - last_time_).seconds();
+  last_time_ = current_time;
 
-
-  if (target_pose_stamped_.header.stamp.sec == 0) 
+  // Clamp dt_ to prevent math explosions if the node stalls
+  if (dt_ <= 0.0 || dt_ > 0.1) {
+    dt_ = 1.0 / 200.0; // Fallback to 200Hz
+  }
+  
+  // 3. Check if we have received a target yet
+  if (target_pose_stamped_.header.stamp.sec == 0)
   {
-    pinocchio::SE3 current_se3 = computeForwardKinematic(q_v_);
+    q_cmd_ = q_;
+
+    // Keeping your original hold-position logic
+    pinocchio::SE3 current_se3 = computeForwardKinematic(q_cmd_);
     Eigen::VectorXd desired_cartesian_velocity;
     computeCartesianVelocity(current_se3, current_se3, desired_cartesian_velocity);
     Eigen::VectorXd dq = Eigen::VectorXd::Zero(model_.nv);
-    publishDebugInfos(current_se3, current_se3, current_se3, desired_cartesian_velocity, dq);
+
+    pinocchio::SE3 tf_se3 = pinocchio::SE3::Identity();
+    tfLookup(target_frame_, arm_prefix_ + "rh_p12_rn_grasp_point", tf_se3);
+
+    publishDebugInfos(current_se3, current_se3, current_se3, tf_se3, desired_cartesian_velocity, dq);
     if (!bypass_safety_) {
         safety_layer_.vis_.publish_markers();
     }
     return;
   }
 
-  //pinocchio::SE3 tf_se3;
-  //if(!tfLookup(arm_prefix_ + "fr3_link0", arm_prefix_ + "fr3_link8", tf_se3)) {
-  //  return;
-  //}
-  
-  pinocchio::SE3 current_se3 = computeForwardKinematic(q_v_);
+  // --- Normal Execution ---
+  pinocchio::SE3 current_se3 = computeForwardKinematic(q_cmd_);
+
+  pinocchio::SE3 tf_se3 = pinocchio::SE3::Identity();
+  tfLookup(target_frame_, arm_prefix_ + "rh_p12_rn_grasp_point", tf_se3);
 
   pinocchio::SE3 safe_target_se3;
   if (bypass_safety_)
@@ -455,129 +475,125 @@ void Franka_IJK::controlLoop()
       safe_target_se3 = safety_layer_.adjustToSafePose(current_se3, target_se3_);
   }
 
-  // --- 2. Compute Primary Task (Cartesian Error and Velocity) ---
+  // --- Compute Primary Task (Cartesian Error and Velocity) ---
   Eigen::VectorXd desired_cartesian_velocity;
   double target_reachable_factor = computeCartesianVelocity(current_se3, safe_target_se3, desired_cartesian_velocity);
   
   Eigen::VectorXd dq;
   if (use_ik) {
-    // --- 3a. Run IK Control (Position-based) ---
-    // Eigen::VectorXd target_q = computeIKResult(current_se3, target_se3);
     dq = Eigen::VectorXd::Zero(model_.nv);
     RCLCPP_FATAL(this->get_logger(), "Not implemented");
   } 
   else 
   {
-    // This mode executes the primary Cartesian task and the secondary Posture task.
+    // Run Jacobian + Nullspace Control (Velocity-based)
     dq = runJacobianNullspaceControl(desired_cartesian_velocity);
   }
 
-  // --- 3c. Output Velocity Filtering ---
-  if (first_run_) {
-    dq_filtered_ = dq;
-    first_run_ = false;
-  }
-  else {
-    // Simple Low-Pass Filter on Velocity
-    dq_filtered_ += (dq - dq_filtered_) * dq_filter_gain_;
-  }
-  dq = dq_filtered_;
-
-  // --- 4. Integrate Virtual State ---
-  // This is the core of the "Virtual Robot" approach.
-  // We drive q_v_ with the filtered smooth velocity.
-  q_v_ += dq * TIME_STEP;
-  // --- 4. Velocity Limiting 
+  // --- Velocity Limiting ---
   double max_dq = dq.array().abs().maxCoeff();
   if (max_dq > joint_velocity_limit_) {
-    RCLCPP_DEBUG(this->get_logger(), "Joint velocity Limit");
+    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Joint velocity Limit Active");
     dq *= (joint_velocity_limit_ / max_dq);
   }
 
-  // --- 5. Publish Command ---
+  // --- Publish Command ---
   publishCommand(dq);
 
-  // --- 6. Publish safety-clamped target pose for cartesian_impedance_controller ---
-  {
-    geometry_msgs::msg::PoseStamped safe_pose_msg;
-    safe_pose_msg.header.stamp = this->get_clock()->now();
-    safe_pose_msg.header.frame_id = target_frame_;
-    safe_pose_msg.pose = convert(safe_target_se3);
-    safe_pose_pub_->publish(safe_pose_msg);
-  }
-
-  publishDebugInfos(current_se3, target_se3_, safe_target_se3, desired_cartesian_velocity, dq);
+  publishDebugInfos(current_se3, target_se3_, safe_target_se3, tf_se3, desired_cartesian_velocity, dq);
 
   if (!bypass_safety_) {
       safety_layer_.vis_.publish_markers();
   }
 }
 
-
 void Franka_IJK::publishCommand(const Eigen::VectorXd& dq)
 {
-  auto traj_msg = std::make_unique<trajectory_msgs::msg::JointTrajectory>();
+  sensor_msgs::msg::JointState target_joint;
   
-  traj_msg->header.stamp = this->get_clock()->now(); // = rclcpp::Time(0, 0);
-  traj_msg->joint_names = {
-    "fr3_joint1", "fr3_joint2", "fr3_joint3", "fr3_joint4",
-    "fr3_joint5", "fr3_joint6", "fr3_joint7"
-  };
+  target_joint.header.stamp = this->get_clock()->now();
+  
+  std::vector<std::string> target_names;
+  for (int i = 1; i <= 7; ++i) {
+    target_names.push_back(arm_prefix_ + "fr3_joint" + std::to_string(i));
+  }
+  target_joint.name = target_names;
+  target_joint.position.resize(7);
+  target_joint.velocity.resize(7);
 
-  {
-    trajectory_msgs::msg::JointTrajectoryPoint point;
-    point.time_from_start = rclcpp::Duration::from_seconds(MOTION_TIME_STEP); 
+  for (int i = 0; i < model_.nv; ++i) {
+    q_cmd_[i] += dq[i] * dt_;
+    // WARNING: Do NOT clamp q_cmd_ to q_ here. 
+    // Muting the offset between desired and actual strictly prevents the 
+    // impedance controller from building up spring force, leaving the arm stuck 
+    // and causing algebraic loops (jiggeling) from sensor noise.
+    // 2. The Leash: Calculate how far the virtual arm has pulled ahead
+    double tracking_error = q_cmd_[i] - q_[i];
+    double max_spring_stretch = 0.1; // ~5.7 degrees max allowed wind-up
     
-    point.velocities.reserve(model_.nv);
-    for (int i = 0; i < model_.nv; ++i) {
-      point.positions.push_back(q_(i) + dq(i) * MOTION_TIME_STEP);
+    // 3. Prevent dangerous drift
+    if (tracking_error > max_spring_stretch) {
+        q_cmd_[i] = q_[i] + max_spring_stretch; // Cap the forward pull
+    } else if (tracking_error < -max_spring_stretch) {
+        q_cmd_[i] = q_[i] - max_spring_stretch; // Cap the backward pull
     }
-
-    point.velocities.reserve(model_.nv);
-    for (int i = 0; i < model_.nv; ++i) {
-      point.velocities.push_back(dq(i));
-    }    
-    
-    // point.accelerations.assign(model_.nv, 0);
-
-    traj_msg->points.push_back(point);
   }
 
-  {
-    trajectory_msgs::msg::JointTrajectoryPoint point;
-    point.time_from_start = rclcpp::Duration::from_seconds(FINAL_TIME_STEP); 
-    
-    point.velocities.reserve(model_.nv);
-    for (int i = 0; i < model_.nv; ++i) {
-      point.positions.push_back(q_(i) + dq(i) * FINAL_TIME_STEP);
+  for (int i = 0; i < 7; ++i) {
+    if (model_.existJointName(target_names[i])) {
+      int idx_q = model_.joints[model_.getJointId(target_names[i])].idx_q();
+      target_joint.position[i] = q_cmd_[idx_q];
+      
+      // If velocity is enabled:
+      int idx_v = model_.joints[model_.getJointId(target_names[i])].idx_v();
+      target_joint.velocity[i] = dq[idx_v];
     }
-    
-    point.velocities.assign(model_.nv, 0);
-    
-    // point.accelerations.assign(model_.nv, 0);
-
-    traj_msg->points.push_back(point);
   }
 
-  joint_velocity_pub_->publish(std::move(traj_msg));
+  target_joint_pub->publish(target_joint);
 }
 
 
-void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, pinocchio::SE3 &safe_target_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq)
+void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &target_se3, pinocchio::SE3 &safe_target_se3, pinocchio::SE3 &tf_se3, Eigen::VectorXd &desired_cartesian_velocity, Eigen::VectorXd &dq)
 {
   franka_custom_msgs::msg::FIJKDebug debug_msg;
   debug_msg.header.stamp = this->get_clock()->now();
   debug_msg.header.frame_id = target_frame_;
 
-  debug_msg.actual_pose = convert(current_se3);
+  debug_msg.actual_pose = convert(computeForwardKinematic(q_));
+  // debug_msg.cmd_pose = convert(current_se3);
   debug_msg.target_pose = convert(target_se3);
   debug_msg.safe_target_pose = convert(safe_target_se3);
-  debug_msg.cmd_pose = convert(computeForwardKinematic(q_v_ + dq * MOTION_TIME_STEP));
-  debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_v_ + dq * FINAL_TIME_STEP));
+  debug_msg.tf_pose = convert(tf_se3);
+  debug_msg.cmd_pose = convert(computeForwardKinematic(q_cmd_ + dq * dt_));
+  debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_cmd_ + dq * (1.1 * dt_)));
   debug_msg.cartesian_velocity = convert(desired_cartesian_velocity);
 
   debug_msg.safety_distance = safety_layer_.current_distance_to_obstacle;
   debug_msg.safety_distance_along_velocity = safety_layer_.current_distance_to_obstacle_along_velocity_direction;
+
+  debug_msg.q_actual.resize(7);
+  debug_msg.dq_commanded.resize(7);
+  debug_msg.q_target.resize(7);
+
+  for (int i = 0; i < 7; ++i) {
+    // We need to map the 7 robot joints correctly from the Pinocchio model
+    std::string joint_name = arm_prefix_ + "fr3_joint" + std::to_string(i + 1);
+    
+    if (model_.existJointName(joint_name)) {
+      int idx_q = model_.joints[model_.getJointId(joint_name)].idx_q();
+      int idx_v = model_.joints[model_.getJointId(joint_name)].idx_v();
+
+      // 1. The State: Exactly where the robot is physically right now
+      debug_msg.q_actual[i] = q_[idx_q];
+
+      // 2. The Velocity Action: The limited velocity the expert commanded
+      debug_msg.dq_commanded[i] = dq[idx_v];
+
+      // 3. The Position Action: The final leashed virtual target sent to the controller
+      debug_msg.q_target[i] = q_cmd_[idx_q]; 
+    }
+  }
 
   debug_pub_->publish(std::move(debug_msg));
 }

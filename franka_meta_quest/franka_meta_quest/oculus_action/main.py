@@ -34,7 +34,7 @@ class CartesianPosePublisher(Node):
             self.ns = ''
             
         self.declare_parameter('base_frame', 'base')
-        self.declare_parameter('end_effector_frame', 'rh_p12_rn_base')
+        self.declare_parameter('end_effector_frame', 'rh_p12_rn_grasp_point')
         
         self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
         
@@ -140,7 +140,7 @@ class CartesianPosePublisher(Node):
         # Determine tracking delta relative to original pressing point
         if self.last_raw_target is None or self.controller.last_target is None:
             self.last_raw_target = {"pos": vr_pos.copy(), "quat": target_quat.copy()}
-            return target_pos, target_quat
+            return self.controller.last_target["pos"], self.controller.last_target["quat"]
 
         # 1. OUTLIER REJECTION: Check instant jumps on the unscaled VR tracking offsets
         raw_pos_diff = vr_pos - self.last_raw_target["pos"]
@@ -322,7 +322,7 @@ class CartesianPosePublisher(Node):
         self.gripper_publisher_.publish(gripper_msg)
         return msg
 
-    def _publish_debug_info(self, msg_header, controller_info, controller_action_info):
+    def _publish_debug_info(self, msg_header, controller_info, controller_action_info, final_translation, final_rotation):
         """Publish massive debugging message for data collection"""
         debug_msg = FMQDebug()
         debug_msg.header = msg_header
@@ -349,12 +349,17 @@ class CartesianPosePublisher(Node):
         debug_msg.robot_target_pose.position =  self.to_ros_point(controller_action_info["robot_target_pos"])
         debug_msg.robot_target_pose.orientation = self.to_ros_quat(controller_action_info["robot_target_quat"])
         
-        # Record purest user-intent delta.
         if self.controller.last_target is not None:
-            delta_pos = controller_action_info["robot_target_pos"] - self.controller.last_target["pos"]
+            # 1. Position Delta
+            delta_pos = final_translation - self.controller.last_target["pos"]
+            
+            # 2. Quaternion Delta (Relative Rotation)
             r_prev = Rotation.from_quat(self.controller.last_target["quat"])
-            r_curr = Rotation.from_quat(controller_action_info["robot_target_quat"])
-            delta_quat = (r_curr * r_prev.inv()).as_quat()
+            r_curr = Rotation.from_quat(final_rotation)
+            
+            # r_curr * r_prev.inv() gives the rotation needed to get from prev to curr
+            r_diff = r_curr * r_prev.inv() 
+            delta_quat = r_diff.as_quat()
         else:
             delta_pos = np.zeros(3)
             delta_quat = np.array([0.0, 0.0, 0.0, 1.0])
@@ -381,6 +386,17 @@ class CartesianPosePublisher(Node):
                 "pos": robot_state_dict["cartesian_position"].copy(), 
                 "quat": robot_state_dict["cartesian_rotation"].copy()
             }
+
+            self.controller.robot_origin = {
+                "pos": robot_state_dict["cartesian_position"].copy(), 
+                "quat": robot_state_dict["cartesian_rotation"].copy()
+            }
+            
+            if hasattr(self.controller, 'vr_state') and self.controller.vr_state is not None:
+                self.controller.vr_origin = {
+                    "pos": self.controller.vr_state["pos"].copy(), 
+                    "quat": self.controller.vr_state["quat"].copy()
+                }
             
             # Broadcast idle state to data collector natively at 15Hz
             debug_msg = FMQDebug()
@@ -432,7 +448,7 @@ class CartesianPosePublisher(Node):
         
         # Log to Debug Publisher
         if controller_action_info:
-            self._publish_debug_info(pose_msg.header, controller_info, controller_action_info)
+            self._publish_debug_info(pose_msg.header, controller_info, controller_action_info, translation, rotation)
 
         # Update tracking memory 
         self.controller.last_target = {"pos": translation.copy(), "quat": rotation.copy()}
