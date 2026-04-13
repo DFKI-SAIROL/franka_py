@@ -25,6 +25,7 @@ def generate_robot_nodes(context):
     config_file = LaunchConfiguration('robot_config_file').perform(context)
     configs = load_yaml(config_file)
     bypass_safety = LaunchConfiguration('bypass_safety').perform(context).lower() == 'true'
+    safety_config_file = LaunchConfiguration('safety_config_file').perform(context)
 
     spawn_robots = []
     if LaunchConfiguration('spawn_franka_main').perform(context).lower() == 'true':
@@ -44,12 +45,15 @@ def generate_robot_nodes(context):
                     executable="safety_node",
                     name="safety_node",
                     namespace=config['namespace'],
-                    parameters=[{
-                        'arm_id': str(config['arm_id']),
-                        'arm_prefix': str(config['namespace']),
-                        'init_joint_position': config['init_joint_position'],
-                        'bypass_safety': bypass_safety,
-                    }],
+                    parameters=[
+                        safety_config_file,
+                        {
+                            'arm_id': str(config['arm_id']),
+                            'arm_prefix': str(config['namespace']),
+                            'init_joint_position': config['init_joint_position'],
+                            'bypass_safety': bypass_safety,
+                        }
+                    ],
                     output="screen",
                 )
             )
@@ -66,6 +70,13 @@ def generate_launch_description():
                 FindPackageShare('franka_launch'), 'config', 'dfki_bimanual.yaml'
             ]),
             description='Path to the robot configuration file to load',
+        ),
+        DeclareLaunchArgument(
+            'safety_config_file',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('franka_safety_layer'), 'config', 'safety_params.yaml'
+            ]),
+            description='Path to the safety parameters config file',
         ),
         DeclareLaunchArgument(
             "spawn_franka_main",

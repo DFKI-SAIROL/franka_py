@@ -5,6 +5,7 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
 
   // Setup Publisher and Subscriber
   target_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("target_pose", 1, std::bind(&Franka_IJK::targetPoseCallback, this, std::placeholders::_1));
+  target_dq_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("target_dq", 1, std::bind(&Franka_IJK::targetDQCallback, this, std::placeholders::_1));
   joint_state_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("joint_states", 1, std::bind(&Franka_IJK::jointStateCallback, this, std::placeholders::_1));
         
   target_joint_pub = this->create_publisher<sensor_msgs::msg::JointState>("target_joint", 1);
@@ -55,6 +56,33 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   q_init_ = Eigen::Map<Eigen::VectorXd>(init_joint_position_vec.data(), 7);
   RCLCPP_INFO(this->get_logger(), "Initial joint position loaded for nullspace control.");
 
+  // Parameter declarations for Tuneable Variables
+  this->declare_parameter("velocity_gain", 5.0);
+  this->declare_parameter("joint_velocity_limit", 1.0);
+  this->declare_parameter("cartesian_velocity_limit", 1.0);
+  this->declare_parameter("K_NULL", 0.1);
+  this->declare_parameter("dls_lambda", 0.0001);
+  this->declare_parameter("max_spring_stretch", 0.1);
+  this->declare_parameter("use_target_interpolation", true);
+  this->declare_parameter("target_dt", 0.02);
+  this->declare_parameter("timer_dt", 0.005);
+
+  velocity_gain_ = this->get_parameter("velocity_gain").as_double();
+  joint_velocity_limit_ = this->get_parameter("joint_velocity_limit").as_double();
+  cartesian_velocity_limit_ = this->get_parameter("cartesian_velocity_limit").as_double();
+  K_NULL_ = this->get_parameter("K_NULL").as_double();
+  dls_lambda_ = this->get_parameter("dls_lambda").as_double();
+  max_spring_stretch_ = this->get_parameter("max_spring_stretch").as_double();
+  use_target_interpolation_ = this->get_parameter("use_target_interpolation").as_bool();
+  target_dt_ = this->get_parameter("target_dt").as_double();
+  timer_dt_ = this->get_parameter("timer_dt").as_double();
+
+  RCLCPP_INFO(this->get_logger(), "Loaded tuneable parameters: velocity_gain=%f, joint_velocity_limit=%f, cartesian_velocity_limit=%f, K_NULL=%f, dls_lambda=%f, max_spring_stretch=%f, use_target_interpolation=%d, target_dt=%f, timer_dt=%f",
+              velocity_gain_, joint_velocity_limit_, cartesian_velocity_limit_, K_NULL_, dls_lambda_, max_spring_stretch_, use_target_interpolation_, target_dt_, timer_dt_);
+
+  param_callback_handle_ = this->add_on_set_parameters_callback(
+      std::bind(&Franka_IJK::parametersCallback, this, std::placeholders::_1));
+
   // Load Pinocchio Model
   if (!loadPinocchioModel()) {
     RCLCPP_FATAL(this->get_logger(), "Failed to load Pinocchio model. Shutting down.");
@@ -82,7 +110,7 @@ Franka_IJK::Franka_IJK() : Node("franka_ijk")
   }
 
   timer_ = this->create_wall_timer(
-    5ms, std::bind(&Franka_IJK::controlLoop, this));
+    std::chrono::duration<double>(timer_dt_), std::bind(&Franka_IJK::controlLoop, this));
 
   RCLCPP_INFO(this->get_logger(), "franka_ijk initialized.");
 }
@@ -176,10 +204,60 @@ void Franka_IJK::targetPoseCallback(const geometry_msgs::msg::PoseStamped::Share
 
   RCLCPP_INFO_ONCE(this->get_logger(), "Got and transformed target state");
   
-  // run the control loop every time when target_cartesian_pose is published
-  // controlLoop();
+  // As soon as a cartesian target is received, we switch mode to cartesian control.
+  if (is_policy_active_) {
+    RCLCPP_INFO(this->get_logger(), "Cartesian target received. Preempting policy control.");
+    is_policy_active_ = false;
+  }
 }
 
+
+void Franka_IJK::targetDQCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
+{
+  // 1. Ensure we have enough data (Franka needs at least 7 joints)
+  if (msg->position.size() < 7) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, 
+        "Policy action too small! Got %zu, expected at least 7", msg->position.size());
+    return;
+  }
+
+  // 2. Claim control and reset watchdog
+  if (!is_policy_active_) {
+      RCLCPP_INFO(this->get_logger(), "Engaging policy control.");
+      is_policy_active_ = true;
+  }
+  last_policy_msg_time_ = this->get_clock()->now();
+
+  target_dq = Eigen::VectorXd::Zero(model_.nv);
+  
+  // 3. MAP THE ARRAY TO THE COMMAND VECTOR
+  if (msg->name.empty()) {
+      // Fallback: Python sent no names. Map by index directly to the first 7 joints.
+      // (This assumes the network output perfectly matches the URDF joint order).
+      for (int i = 0; i < 7; ++i) {
+          target_dq[i] = msg->position[i];
+      }
+  } 
+  else {
+      // Safe Mapping: Python sent names. Map them dynamically to Pinocchio's velocity vector.
+      for (size_t i = 0; i < msg->name.size(); ++i) {
+        if (model_.existJointName(msg->name[i])) {
+          int idx_v = model_.joints[model_.getJointId(msg->name[i])].idx_v();
+          if (idx_v >= 0 && idx_v < model_.nv) {
+            target_dq[idx_v] = msg->position[i];
+          }
+        }
+      }
+  }
+
+  // 4. Apply Velocity Limits Safely
+  double max_dq = target_dq.array().abs().maxCoeff();
+  
+  // Ensure joint_velocity_limit_ is > 0 so we don't divide by zero or mute actions
+  if (max_dq > joint_velocity_limit_ && joint_velocity_limit_ > 0.0) {
+    target_dq *= (joint_velocity_limit_ / max_dq);
+  }
+}
 
 // other robot
 void Franka_IJK::otherJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
@@ -341,8 +419,8 @@ double Franka_IJK::computeCartesianVelocity(
   
   // Build the 6D desired velocity V = K * e
   desired_cartesian_velocity = Eigen::VectorXd::Zero(6);
-  desired_cartesian_velocity.head<3>() = 5.0 * lin_world_error; // / dt_;
-  desired_cartesian_velocity.tail<3>() = 5.0 * angular_world_error; // / dt_;
+  desired_cartesian_velocity.head<3>() = velocity_gain_ * lin_world_error; // / dt_;
+  desired_cartesian_velocity.tail<3>() = velocity_gain_ * angular_world_error; // / dt_;
 
   double target_reachable_factor = 1;
 
@@ -386,7 +464,7 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
   pinocchio::getFrameJacobian(model_, *data_, ee_frame_id_, pinocchio::LOCAL_WORLD_ALIGNED, J);
 
   // 3. Compute the Damped Least Squares Pseudo-Inverse (J_dagger)
-  const double lambda = 0.0001; //1e-6; // Damping factor for DLS
+  const double lambda = dls_lambda_; // Damping factor for DLS
   Eigen::MatrixXd J_dagger = J.transpose() * (J * J.transpose() + lambda * Eigen::MatrixXd::Identity(6, 6)).inverse();
 
   // 4. Primary Task: Cartesian Velocity
@@ -399,9 +477,9 @@ Eigen::VectorXd Franka_IJK::runJacobianNullspaceControl(const Eigen::VectorXd& d
   // 5.2. Compute the Nullspace Projector: N = I - J_dagger * J
   Eigen::MatrixXd N = Eigen::MatrixXd::Identity(model_.nv, model_.nv) - J_dagger * J;
 
-  // 5.3. Secondary Task Velocity (Posture Control): dq_null_task = K_NULL * (q_init - q_curr)
+  // 5.3. Secondary Task Velocity (Posture Control): dq_null_task = K_NULL_ * (q_init - q_curr)
   Eigen::VectorXd joint_error_posture = q_init_ - q_cmd_;
-  Eigen::VectorXd dq_null_task = K_NULL * joint_error_posture;
+  Eigen::VectorXd dq_null_task = K_NULL_ * joint_error_posture;
 
   // 5.4. Projected Nullspace Command: dq_null = N * dq_null_task
   Eigen::VectorXd dq_null = N * dq_null_task;
@@ -434,8 +512,25 @@ void Franka_IJK::controlLoop()
   last_time_ = current_time;
 
   // Clamp dt_ to prevent math explosions if the node stalls
-  if (dt_ <= 0.0 || dt_ > 0.1) {
-    dt_ = 1.0 / 200.0; // Fallback to 200Hz
+  if (dt_ <= 0.0 || dt_ > target_dt_ * 2) {
+    dt_ = target_dt_; // Fallback to 200Hz
+  }
+
+  if (is_policy_active_) {
+    // Timeout: No policy msg in 250ms -> fall back to Cartesian hold
+    if ((current_time - last_policy_msg_time_).seconds() > 0.25) {
+      RCLCPP_WARN(this->get_logger(), "Policy stream stopped. Reverting to Cartesian hold.");
+      is_policy_active_ = false;
+      target_se3_ = computeForwardKinematic(q_cmd_); 
+    } else {
+      // POLICY IS HEALTHY: Execute the stored network velocity at 200Hz!
+      publishCommand(target_dq);
+      
+      // (Optional) Publish your debug info here to record the policy execution
+      // publishDebugInfos(...);
+      
+      return; // Skip the Cartesian IK math
+    }
   }
   
   // 3. Check if we have received a target yet
@@ -465,30 +560,23 @@ void Franka_IJK::controlLoop()
   pinocchio::SE3 tf_se3 = pinocchio::SE3::Identity();
   tfLookup(target_frame_, arm_prefix_ + "rh_p12_rn_grasp_point", tf_se3);
 
+  pinocchio::SE3 active_target_se3 = getInterpolatedTarget(target_se3_, dt_);
+
   pinocchio::SE3 safe_target_se3;
   if (bypass_safety_)
   {
-      safe_target_se3 = target_se3_;
+      safe_target_se3 = active_target_se3;
   }
   else
   {
-      safe_target_se3 = safety_layer_.adjustToSafePose(current_se3, target_se3_);
+      safe_target_se3 = safety_layer_.adjustToSafePose(current_se3, active_target_se3);
   }
 
   // --- Compute Primary Task (Cartesian Error and Velocity) ---
   Eigen::VectorXd desired_cartesian_velocity;
   double target_reachable_factor = computeCartesianVelocity(current_se3, safe_target_se3, desired_cartesian_velocity);
   
-  Eigen::VectorXd dq;
-  if (use_ik) {
-    dq = Eigen::VectorXd::Zero(model_.nv);
-    RCLCPP_FATAL(this->get_logger(), "Not implemented");
-  } 
-  else 
-  {
-    // Run Jacobian + Nullspace Control (Velocity-based)
-    dq = runJacobianNullspaceControl(desired_cartesian_velocity);
-  }
+  Eigen::VectorXd dq = runJacobianNullspaceControl(desired_cartesian_velocity);
 
   // --- Velocity Limiting ---
   double max_dq = dq.array().abs().maxCoeff();
@@ -529,7 +617,7 @@ void Franka_IJK::publishCommand(const Eigen::VectorXd& dq)
     // and causing algebraic loops (jiggeling) from sensor noise.
     // 2. The Leash: Calculate how far the virtual arm has pulled ahead
     double tracking_error = q_cmd_[i] - q_[i];
-    double max_spring_stretch = 0.1; // ~5.7 degrees max allowed wind-up
+    double max_spring_stretch = max_spring_stretch_; // max allowed wind-up
     
     // 3. Prevent dangerous drift
     if (tracking_error > max_spring_stretch) {
@@ -561,7 +649,6 @@ void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &
   debug_msg.header.frame_id = target_frame_;
 
   debug_msg.actual_pose = convert(computeForwardKinematic(q_));
-  // debug_msg.cmd_pose = convert(current_se3);
   debug_msg.target_pose = convert(target_se3);
   debug_msg.safe_target_pose = convert(safe_target_se3);
   debug_msg.tf_pose = convert(tf_se3);
@@ -598,8 +685,81 @@ void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &
   debug_pub_->publish(std::move(debug_msg));
 }
 
+rcl_interfaces::msg::SetParametersResult Franka_IJK::parametersCallback(
+  const std::vector<rclcpp::Parameter> &parameters)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  result.reason = "success";
 
+  for (const auto &param : parameters)
+  {
+    if (param.get_name() == "velocity_gain" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      velocity_gain_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated velocity_gain to %f", velocity_gain_);
+    } else if (param.get_name() == "joint_velocity_limit" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      joint_velocity_limit_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated joint_velocity_limit to %f", joint_velocity_limit_);
+    } else if (param.get_name() == "cartesian_velocity_limit" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      cartesian_velocity_limit_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated cartesian_velocity_limit to %f", cartesian_velocity_limit_);
+    } else if (param.get_name() == "K_NULL" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      K_NULL_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated K_NULL to %f", K_NULL_);
+    } else if (param.get_name() == "dls_lambda" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      dls_lambda_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated dls_lambda to %f", dls_lambda_);
+    } else if (param.get_name() == "max_spring_stretch" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      max_spring_stretch_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated max_spring_stretch to %f", max_spring_stretch_);
+    } else if (param.get_name() == "use_target_interpolation" && param.get_type() == rclcpp::ParameterType::PARAMETER_BOOL) {
+      use_target_interpolation_ = param.as_bool();
+      RCLCPP_INFO(this->get_logger(), "Updated use_target_interpolation to %d", use_target_interpolation_);
+    } else if (param.get_name() == "target_dt" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      target_dt_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated target_dt to %f", target_dt_);
+    } else if (param.get_name() == "timer_dt" && param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      timer_dt_ = param.as_double();
+      RCLCPP_INFO(this->get_logger(), "Updated timer_dt to %f", timer_dt_);
+      if (timer_) timer_->cancel();
+      timer_ = this->create_wall_timer(std::chrono::duration<double>(timer_dt_), std::bind(&Franka_IJK::controlLoop, this));
+    }
+  }
 
+  return result;
+}
+
+pinocchio::SE3 Franka_IJK::getInterpolatedTarget(const pinocchio::SE3& raw_target, double dt)
+{
+  // 1. Pass-Through if disabled
+  if (!use_target_interpolation_) {
+    return raw_target;
+  }
+
+  // 2. Snap to target on the very first frame to prevent sweeping across the room
+  if (!first_target_received_) {
+    smooth_target_se3_ = raw_target;
+    first_target_received_ = true;
+    return smooth_target_se3_;
+  }
+
+  // 3. Calculate interpolation step size
+  double interpolation_factor = dt / target_dt_; 
+  if (interpolation_factor > 1.0) interpolation_factor = 1.0; // Prevent overshooting
+
+  // 4. Lerp Translation
+  Eigen::Vector3d trans_error = raw_target.translation() - smooth_target_se3_.translation();
+  smooth_target_se3_.translation() += trans_error * interpolation_factor;
+
+  // 5. Slerp Rotation (Lie Algebra)
+  pinocchio::SE3 relative_rot = smooth_target_se3_.inverse() * raw_target;
+  Eigen::Vector3d angular_error_local = pinocchio::log3(relative_rot.rotation());
+  
+  Eigen::Matrix3d R_step = pinocchio::exp3(angular_error_local * interpolation_factor);
+  smooth_target_se3_.rotation() = smooth_target_se3_.rotation() * R_step; 
+
+  return smooth_target_se3_;
+}
 
 // =================================================================================
 // Main Function
