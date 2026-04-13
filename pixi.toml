@@ -32,8 +32,9 @@ clean = "rm -rf build install log"
 clean-build = [{ task = "clean" }, { task = "build" }]
 robot = "bash scripts/run_robot.sh"
 teleop = "bash scripts/run_teleop.sh"
+client = "bash scripts/run_client.sh"
 data-collection = "bash scripts/run_data_collection.sh"
-frankapy = { depends-on = ["robot", "teleop", "data-collection"] }
+frankapy = { depends-on = ["robot", "teleop", "data-collection", "client"] }
 
 
 [target.linux.dependencies]
@@ -101,6 +102,10 @@ pytest = "*"  # for testing
 
 [feature.frankapy.pypi-dependencies]
 frankapy = { path = ".", editable = true }
+
+[feature.frankapy.dependencies]
+pynput = ">=1.8.1,<2"
+grpcio = ">=1.67.1,<2"
 
 [feature.extra.pypi-dependencies]
 rich = "*"  # For nice prints
