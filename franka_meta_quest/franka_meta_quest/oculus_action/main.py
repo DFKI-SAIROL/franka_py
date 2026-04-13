@@ -14,7 +14,7 @@ from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Time, Duration as ROSDuration
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster
-from franka_custom_msgs.msg import FMQDebug
+from franka_custom_msgs.msg import FMQDebug, FIJKDebug
 from std_srvs.srv import Trigger
 
 try:
@@ -56,6 +56,9 @@ class CartesianPosePublisher(Node):
 
         self.joint_subscriber_ = self.create_subscription(JointState, self.ns + '/franka/joint_states', self.joint_state_callback, 1)
         self.gripper_subscriber_ = self.create_subscription(JointState, self.ns + '/franka_gripper/joint_states', self.gripper_state_callback, 1)
+        
+        self.fijk_subscriber_ = self.create_subscription(FIJKDebug, self.ns + '/fijk_debug', self.fijk_callback, 1)
+
         self.target_pose_publisher_ = self.create_publisher(PoseStamped, self.ns + '/target_pose', 1)
         self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
         self.debug_publisher_ = self.create_publisher(FMQDebug, self.ns + '/mq_debug', 1)
@@ -70,6 +73,9 @@ class CartesianPosePublisher(Node):
         self.current_joint_state = JointState()
         self.current_gripper_state = JointState()
 
+        self.latest_cmd_pos = None
+        self.latest_cmd_quat = None
+
         self.controller = VRPolicy()
 
         self.controller.reset_state()
@@ -82,6 +88,15 @@ class CartesianPosePublisher(Node):
 
         self.get_logger().info('VRPolicy Publisher started.')
 
+    def fijk_callback(self, msg):
+        """Continuously caches the exact mathematical target the C++ node is holding."""
+        self.latest_cmd_pos = np.array([msg.cmd_pose.position.x, msg.cmd_pose.position.y, msg.cmd_pose.position.z])
+        self.latest_cmd_quat = np.array([
+            msg.cmd_pose.orientation.x, 
+            msg.cmd_pose.orientation.y, 
+            msg.cmd_pose.orientation.z, 
+            msg.cmd_pose.orientation.w
+        ])
 
     def joint_state_callback(self, msg):
         self.current_joint_state = msg
@@ -379,18 +394,37 @@ class CartesianPosePublisher(Node):
         if not succ:
             return
 
+        if self.latest_cmd_pos is not None:
+            robot_state_dict["cartesian_position"] = self.latest_cmd_pos.copy()
+            robot_state_dict["cartesian_rotation"] = self.latest_cmd_quat.copy()
+
+        if self.controller.last_target is None:
+            if self.latest_cmd_pos is not None:
+                self.controller.last_target = {
+                    "pos": self.latest_cmd_pos.copy(), 
+                    "quat": self.latest_cmd_quat.copy()
+                }
+            else:
+                # If C++ hasn't published yet, wait for it before moving.
+                self.get_logger().debug("Waiting for C++ cmd_pose...")
+                return
+
         # Gating: Do not update or publish target if movement is not enabled (unless explicitly homing)
         if not controller_info["movement_enabled"] and not b_pressed:
             self.last_raw_target = None
-            self.controller.last_target = {
-                "pos": robot_state_dict["cartesian_position"].copy(), 
-                "quat": robot_state_dict["cartesian_rotation"].copy()
-            }
 
-            self.controller.robot_origin = {
-                "pos": robot_state_dict["cartesian_position"].copy(), 
-                "quat": robot_state_dict["cartesian_rotation"].copy()
-            }
+
+            # Prefer the exact mathematical command state from C++
+            if self.latest_cmd_pos is not None:
+                sync_pos = self.latest_cmd_pos.copy()
+                sync_quat = self.latest_cmd_quat.copy()
+            else:
+                # Fallback to physical TF only if C++ hasn't published yet
+                sync_pos = robot_state_dict["cartesian_position"].copy()
+                sync_quat = robot_state_dict["cartesian_rotation"].copy()
+
+            self.controller.last_target = {"pos": sync_pos, "quat": sync_quat}
+            self.controller.robot_origin = {"pos": sync_pos, "quat": sync_quat}
             
             if hasattr(self.controller, 'vr_state') and self.controller.vr_state is not None:
                 self.controller.vr_origin = {
@@ -411,13 +445,13 @@ class CartesianPosePublisher(Node):
             t.header.frame_id = self.base_frame
             prefix = self.ns[1:] + "_" if len(self.ns) > 1 else ""
             t.child_frame_id = f"{prefix}vr_target_pose"
-            t.transform.translation.x = float(robot_state_dict["cartesian_position"][0])
-            t.transform.translation.y = float(robot_state_dict["cartesian_position"][1])
-            t.transform.translation.z = float(robot_state_dict["cartesian_position"][2])
-            t.transform.rotation.x = float(robot_state_dict["cartesian_rotation"][0])
-            t.transform.rotation.y = float(robot_state_dict["cartesian_rotation"][1])
-            t.transform.rotation.z = float(robot_state_dict["cartesian_rotation"][2])
-            t.transform.rotation.w = float(robot_state_dict["cartesian_rotation"][3])
+            t.transform.translation.x = float(sync_pos[0])
+            t.transform.translation.y = float(sync_pos[1])
+            t.transform.translation.z = float(sync_pos[2])
+            t.transform.rotation.x = float(sync_quat[0])
+            t.transform.rotation.y = float(sync_quat[1])
+            t.transform.rotation.z = float(sync_quat[2])
+            t.transform.rotation.w = float(sync_quat[3])
             self.tf_broadcaster.sendTransform(t)
             
             return
