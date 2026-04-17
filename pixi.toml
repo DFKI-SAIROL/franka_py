@@ -22,6 +22,8 @@ make = "*"
 ninja = "*"
 pinocchio = "*"
 pure-python-adb = ">=0.3.0.dev0,<0.4"
+pyqtgraph = ">=0.13.7,<0.14"
+libtmux = ">=0.46.2,<0.47"
 
 [tasks]
 test_raw = "pytest --cov=frankapy --cov-report=html"
