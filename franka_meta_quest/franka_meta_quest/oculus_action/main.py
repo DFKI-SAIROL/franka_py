@@ -16,7 +16,6 @@ from builtin_interfaces.msg import Time, Duration as ROSDuration
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster
 from franka_custom_msgs.msg import FMQDebug, FIJKDebug
 from std_srvs.srv import Trigger
-
 try:
     from .oculus_controller import VRPolicy
     from .transformations import euler_to_quat
@@ -82,6 +81,7 @@ class CartesianPosePublisher(Node):
         
         # Service Clients for Data Collection
         self.cli_rec = self.create_client(Trigger, '/data_collector/record_data_trigger')
+        self.reset_home = self.create_client(Trigger, '~/reset_home', 1)
         
         # State tracking for buttons
         self.last_buttons = {"A": False, "B": False, "X": False, "Y": False}
@@ -207,8 +207,11 @@ class CartesianPosePublisher(Node):
         
         # Detect rising edge for A
         if a_pressed and not self.last_buttons["A"]: 
-             self.call_service_async(self.cli_rec, 'Recording')
-             
+            self.call_service_async(self.cli_rec, 'Recording')
+
+        if b_pressed and not self.last_buttons["B"]: 
+            self.call_service_async(self.reset_home, 'Reset Home')
+
         self.last_buttons["A"] = a_pressed
         self.last_buttons["B"] = b_pressed
         

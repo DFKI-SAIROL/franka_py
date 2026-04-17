@@ -26,11 +26,23 @@ class ProcessManager:
             
         window = self.session.new_window(window_name=window_name, attach=False)
         
-        for i, cmd in enumerate(commands):
+        for i, item in enumerate(commands):
+            if isinstance(item, dict):
+                cmd = item['cmd']
+                split_flag = item.get('split', None)
+            else:
+                cmd = item
+                split_flag = None
+
             if i == 0:
                 pane = window.attached_pane
             else:
-                pane = window.split_window(attach=False)
+                kwargs = {'attach': False}
+                if split_flag == '-h':
+                    kwargs['vertical'] = False
+                elif split_flag == '-v':
+                    kwargs['vertical'] = True
+                pane = window.split_window(**kwargs)
             pane.send_keys(cmd)
             
         return window
@@ -59,3 +71,9 @@ class ProcessManager:
         # Use while true loop to keep terminal open and auto-reconnect on restart.
         cmd = f"env -i DISPLAY=$DISPLAY HOME=$HOME USER=$USER PATH=/usr/local/bin:/usr/bin:/bin gnome-terminal -- bash -c \"while true; do tmux attach-session -t '{self.session_name}:{window_name}'; sleep 1; done\""
         subprocess.Popen(cmd, shell=True)
+
+    def kill_session(self):
+        try:
+            self.session.kill_session()
+        except Exception:
+            pass
