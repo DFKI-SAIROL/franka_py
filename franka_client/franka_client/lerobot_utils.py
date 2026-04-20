@@ -127,4 +127,5 @@ class RemotePolicyConfig:
     lerobot_features: dict
     actions_per_chunk: int
     device: str = "cpu"
+    fps: float = 30.0  # robot control-loop frequency; used by server for action timestamping
     rename_map: dict[str, str] = field(default_factory=dict)
