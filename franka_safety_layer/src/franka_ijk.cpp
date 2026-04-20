@@ -652,8 +652,8 @@ void Franka_IJK::publishDebugInfos(pinocchio::SE3 &current_se3, pinocchio::SE3 &
   debug_msg.target_pose = convert(target_se3);
   debug_msg.safe_target_pose = convert(safe_target_se3);
   debug_msg.tf_pose = convert(tf_se3);
-  debug_msg.cmd_pose = convert(computeForwardKinematic(q_cmd_ + dq * dt_));
-  debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_cmd_ + dq * (1.1 * dt_)));
+  debug_msg.cmd_pose = convert(computeForwardKinematic(q_cmd_));
+  debug_msg.cmd_final_pose = convert(computeForwardKinematic(q_cmd_));
   debug_msg.cartesian_velocity = convert(desired_cartesian_velocity);
 
   debug_msg.safety_distance = safety_layer_.current_distance_to_obstacle;
