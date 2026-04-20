@@ -30,7 +30,7 @@ class VRPolicy:
         spatial_coeff: float = 1.0,
         pos_action_gain: float = 1.0,
         rot_action_gain: float = 1.0,
-        gripper_action_gain: float = 3.0,
+        gripper_action_gain: float = 1.0,
         rmat_reorder: list = [-2, -1, -3, 4],
     ):
         self.oculus_reader = OculusReader()
@@ -49,8 +49,58 @@ class VRPolicy:
         self.reset_state()
 
         # Start State Listening Thread #
-        self.is_running = True
-        self.thread = run_threaded_command(self._update_internal_state)
+        self.is_running = False
+        # self.thread = run_threaded_command(self._update_internal_state)
+
+    def poll_and_process(self, robot_state_dict):
+        """The complete synchronous version of the old threaded logic."""
+        # 1. Read Controller
+        poses, buttons = self.oculus_reader.get_transformations_and_buttons()
+        
+        # 2. Update Watchdog (controller_on)
+        self._reader_state["controller_on"] = (poses != {})
+        
+        if poses == {}:
+            return None, None, {}
+
+        # 3. Determine Control Pipeline Flags
+        toggled = self._reader_state["movement_enabled"] != buttons[self.controller_id.upper() + "G"]
+
+        grip_was_on = self._reader_state["movement_enabled"]
+        grip_is_now = buttons[self.controller_id.upper() + "G"]
+        self._just_stopped_flag = grip_was_on and not grip_is_now
+        
+        # These flags are used inside _calculate_action
+        self.update_sensor = self.update_sensor or buttons[self.controller_id.upper() + "G"]
+        self.reset_orientation = self.reset_orientation or buttons[self.controller_id.upper() + "J"]
+        
+        # Joystick Resets
+        self.reset_to_robot = self.reset_to_robot or buttons[self.extended_controller_id + "JS"][1] > 0.5
+        self.reset_to_init_robot = self.reset_to_init_robot or buttons[self.extended_controller_id + "JS"][1] < -0.5
+        self.reset_origin = self.reset_origin or toggled
+
+        # 4. Save Info to internal state
+        self._reader_state["poses"] = poses
+        self._reader_state["buttons"] = buttons
+        self._reader_state["movement_enabled"] = buttons[self.controller_id.upper() + "G"]
+
+        # 5. Orientation Reset Logic (The fix for the 90-degree offset)
+        stop_updating = self._reader_state["buttons"][self.controller_id.upper() + "J"] or self._reader_state["movement_enabled"]
+
+        if self.reset_orientation:
+            rot_mat = np.asarray(self._reader_state["poses"][self.controller_id])
+            
+            if stop_updating:
+                self.reset_orientation = False
+                
+            try:
+                self.vr_to_global_mat = np.linalg.inv(rot_mat)
+            except np.linalg.LinAlgError:
+                self.vr_to_global_mat = np.eye(4)
+                self.reset_orientation = True 
+
+        # 6. Execute the Pose Calculation
+        return self._calculate_action(robot_state_dict)
 
     def reset_state(self):
         self._reader_state = {
@@ -70,6 +120,7 @@ class VRPolicy:
         self.vr_state = None
         self.vr_last_state = None
         self.last_target = None
+        self._just_stopped_flag = False
 
     def _update_internal_state(self, num_wait_sec=5, hz=50):
         """
@@ -94,7 +145,6 @@ class VRPolicy:
             toggled = self._reader_state["movement_enabled"] != buttons[self.controller_id.upper() + "G"]
             self.update_sensor = self.update_sensor or buttons[self.controller_id.upper() + "G"]
             self.reset_orientation = self.reset_orientation or buttons[self.controller_id.upper() + "J"]
-            # TODO: what are reset_to_robot and reset_to_init_robot
             self.reset_to_robot = self.reset_to_robot or buttons[self.extended_controller_id + "JS"][1] > 0.5
             self.reset_to_init_robot = self.reset_to_init_robot or buttons[self.extended_controller_id + "JS"][1] < -0.5
             self.reset_origin = self.reset_origin or toggled
@@ -183,7 +233,9 @@ class VRPolicy:
         if self.reset_origin:
             if self._reader_state["movement_enabled"]:
                 print(time.time(), self.extended_controller_id, "start movement", flush=True)
-                self.robot_origin = {"pos": robot_pos, "quat": robot_quat} # self.last_target
+                origin_pos = self.last_target["pos"] if self.last_target else robot_pos
+                origin_quat = self.last_target["quat"] if self.last_target else robot_quat
+                self.robot_origin = {"pos": origin_pos, "quat": origin_quat} # self.last_target
                 self.vr_origin = {"pos": self.vr_state["pos"], "quat": self.vr_state["quat"]}
             else:
                 print(time.time(), self.extended_controller_id, "stop movement", flush=True)
@@ -223,6 +275,16 @@ class VRPolicy:
         R_robot_orig = Rotation.from_quat(self.robot_origin["quat"])
         target_quat = (R_delta * R_robot_orig).as_quat()
 
+        if self.last_target is not None:
+            # Compute the dot product
+            dot = np.dot(target_quat, self.last_target["quat"])
+            
+            # If dot < 0, the quaternions are on opposite hemispheres.
+            # Flip the new one to the same hemisphere as the last one.
+            if dot < 0.0:
+                target_quat = -target_quat
+        target_quat = target_quat / np.linalg.norm(target_quat)
+
         target_pos = self.robot_origin["pos"] + self.pos_action_gain * vr_pos_offset
         # target_quat = add_quats(self.robot_origin["quat"], self.rot_action_gain * quat_diff(self.vr_state["quat"], self.vr_origin["quat"]))
 
@@ -235,8 +297,8 @@ class VRPolicy:
         if self.reset_to_robot:
             print(time.time(), self.extended_controller_id, "reset target to robot", flush=True)
             self.reset_to_robot = False
-            target_pos = robot_pos
-            target_quat = robot_quat
+            target_pos = self.last_target["pos"] if self.last_target else robot_pos
+            target_pos = self.last_target["quat"] if self.last_target else robot_quat
 
         if self.reset_to_init_robot:
             print(time.time(), self.extended_controller_id, "reset target to init robot", flush=True)
@@ -274,6 +336,7 @@ class VRPolicy:
             "failure": self._reader_state["buttons"]["B"] if self.controller_id == 'r' else self._reader_state["buttons"]["Y"],
             "movement_enabled": self._reader_state["movement_enabled"],
             "controller_on": self._reader_state["controller_on"],
+            "just_stopped": self._just_stopped_flag,
         }
 
     def forward(self, obs_dict):
