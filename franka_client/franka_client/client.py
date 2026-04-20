@@ -5,6 +5,7 @@ from queue import Queue
 import time
 import pickle
 from dataclasses import dataclass
+import math
 
 import grpc
 import numpy as np
@@ -110,8 +111,21 @@ class RobiClient(Node):
         self.action_queue_lock = threading.Lock()
         self.latest_action = -1
         self.latest_action_lock = threading.Lock()
-        self.action_chunk_size = -1
-        self._chunk_size_threshold = self.config.get('policy.chunk_size_threshold', 0.5)
+
+        # Chunk timing — handled entirely client-side
+        yaml_policy_config = self.config.get('policy', {})
+        self.actions_per_chunk: int = yaml_policy_config.get('actions_per_chunk', 32)
+        # How many actions are approximately sent to the robot during one inference pass
+        policy_inference_fps: float = self.config.get('policy_inference_fps', 10.0)
+        self.act_while_inference: int = max(1, math.ceil(self.frequency / policy_inference_fps))
+        # Threshold: request a new observation when the queue drops to this many actions remaining
+        default_threshold = self.actions_per_chunk - self.act_while_inference
+        self._chunk_size_threshold: int = yaml_policy_config.get('chunk_size_threshold', default_threshold)
+        self.logger.info(
+            f"Chunk timing | actions_per_chunk={self.actions_per_chunk} | "
+            f"act_while_inference={self.act_while_inference} | "
+            f"chunk_size_threshold={self._chunk_size_threshold}"
+        )
 
         # gRPC Setup
         self.server_address = self.config.get('server_address')
@@ -119,13 +133,13 @@ class RobiClient(Node):
         self.stub = services_pb2_grpc.AsyncInferenceStub(self.channel)
         
         # start client and handshake with server
-        yaml_policy_config = self.config.get('policy', {})
         self.policy_config = RemotePolicyConfig(
             yaml_policy_config.get('policy_type'),
             yaml_policy_config.get('pretrained_name_or_path'),
             yaml_policy_config.get('lerobot_features'),
-            yaml_policy_config.get('actions_per_chunk'),
+            self.actions_per_chunk,
             yaml_policy_config.get('policy_device'),
+            fps=self.frequency,  # server uses this to derive environment_dt
         )
         self.start_client_server_connection()
         self.is_running = True
@@ -182,8 +196,6 @@ class RobiClient(Node):
                     continue 
 
                 timed_actions = pickle.loads(actions_chunk.data)  # nosec
-                self.action_chunk_size = max(self.action_chunk_size, len(timed_actions))
-
                 self._aggregate_action_queues(timed_actions, self.config.get('aggregate_fn'))
                 self.must_go.set() 
 
@@ -267,10 +279,10 @@ class RobiClient(Node):
             return False
 
         # 1. Check Action Queue Depth
+        # Send a new observation when remaining actions fall at or below the threshold,
+        # which is the number of actions still in-flight during one inference pass.
         with self.action_queue_lock:
-            # Avoid division by zero if chunk size isn't set yet
-            chunk_size = max(self.action_chunk_size, 1)
-            is_queue_low = self.action_queue.qsize() / chunk_size <= self._chunk_size_threshold
+            is_queue_low = self.action_queue.qsize() <= self._chunk_size_threshold
 
         if not is_queue_low:
             return False

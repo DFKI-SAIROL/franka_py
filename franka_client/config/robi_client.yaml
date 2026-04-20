@@ -1,5 +1,6 @@
 node_name: "robi_client"
-frequency: 30.0 # Hz
+frequency: 50.0 # Hz
+policy_inference_fps: 8.0 # Hz — estimated inference throughput of the policy server
 
 mappings:
   "observation.state":
@@ -14,7 +15,7 @@ mappings:
   "observation.images.image":
     topic: "/zed_rig/synced_raw_snapshot"
     msgtype: "custom_interfaces/msg/RigSnapshot"
-    camera_name: zed_right
+    camera_name: zed_middle
     resize: [224, 224]
     center_crop: True
     encoding: rgb8
@@ -61,18 +62,21 @@ actions:
 home_pose:
   topic: "/franka_right/target_pose"
   frame_id: "world"
-  position: [0.3, -0.3, 0.4]  # x, y, z
-  orientation: [0.95, 0.32, 0.0, 0.0]  # x, y, z, w (or however your C++ node expects it)
+  position: [0.4, -0.3, 0.15] # [0.3, -0.3, 0.4]  # x, y, z
+  orientation: [1.0, 0.3, 0.0, 0.0] # [0.95, 0.32, 0.0, 0.0]  # x, y, z, w (or however your C++ node expects it)
   gripper_topic: "/franka_right/gripper/gripper_controller/joint_trajectory"
   gripper_joint_name: "franka_right_rh_r1"
   gripper_open_val: 0.0
 
 policy:
-  chunk_size_threshold: 0.7
+  # chunk_size_threshold: integer number of queued actions below which a new observation is
+  # requested. Computed automatically as (actions_per_chunk - act_while_inference).
+  # Override here only if you want to force a fixed value.
+  # chunk_size_threshold: <int>
   policy_type: "xvla" # beast_f, xvla
-  pretrained_name_or_path: "/home/csil/projects/bimanual/policy_server/policy_ckpts/xvla_pick_and_place_duplo_delta_joint_20ep_30hz_2026-04-12_07-31-33/checkpoints/last/pretrained_model"
+  pretrained_name_or_path: "/home/csil/projects/bimanual/policy_server/policy_ckpts/xvla_pick_and_place_duplo_delta_joint_50hz_60ep_2026-04-17_13-58-22/checkpoints/last/pretrained_model"
   # pretrained_name_or_path: "/home/csil/projects/bimanual/policy_server/policy_ckpts/beastf_pick_and_place_duplo_delta_joint_20ep_30hz_2026-04-11_20-50-38/checkpoints/last/pretrained_model"
-  actions_per_chunk: 32
+  actions_per_chunk: 24
   policy_device: "cuda:0"
   task: "Pick and Place"
 
