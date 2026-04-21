@@ -17,6 +17,7 @@ from tf2_ros import Buffer, TransformListener, TransformBroadcaster
 from franka_custom_msgs.msg import FMQDebug, FIJKDebug
 from std_srvs.srv import Trigger
 from crisp_py.robot import make_robot
+from omegaconf import OmegaConf
 
 try:
     from .oculus_controller import VRPolicy
@@ -33,35 +34,49 @@ class CartesianPosePublisher(Node):
         if self.ns == '/':
             self.ns = ''
         self.declare_parameter('base_frame', 'base')
-        self.declare_parameter('end_effector_frame', 'rh_p12_rn_grasp_point')
         
-        self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
+        # ROS 2 Parameters
+        self.declare_parameter('teleop_config', '')
+        config_path = self.get_parameter('teleop_config').get_parameter_value().string_value
         
-        # Internal state
-        self.last_raw_target = None
-        self.end_effector_frame = self.get_parameter('end_effector_frame').get_parameter_value().string_value
-        
-        self.base_frame = "world"
-        self.end_effector_frame = "rh_p12_rn_grasp_point"
+        # Load OmegaConf
+        if config_path:
+            self.config = OmegaConf.load(config_path)
+            self.get_logger().info(f'Loaded teleop config from: {config_path}')
+        else:
+            self.get_logger().warn('No teleop_config provided, using defaults.')
+            self.config = OmegaConf.create({
+                "right_controller": True,
+                "max_lin_vel": 0.5,
+                "max_rot_vel": 1.0,
+                "max_gripper_vel": 1.0,
+                "spatial_coeff": 1.0,
+                "pos_action_gain": 1.0,
+                "rot_action_gain": 1.0,
+                "gripper_action_gain": 1.0,
+                "rmat_reorder": [-2, -1, -3, 4],
+                "base_frame": "world",
+                "ee_frame": "rh_p12_rn_grasp_point",
+                "target_joint_topic": "internal/target_joint",
+                "target_pose_topic": "internal/target_pose"
+            })
 
-        print(self.base_frame)
-        print(self.end_effector_frame)
-
-        # fallback for bimanual prefix parsing if left default
-        # if self.base_frame == 'base' and self.ns != '':
-        #     self.base_frame = self.ns[1:] + '_' + self.base_frame
-        if self.ns != '':
+        self.base_frame = self.config.base_frame
+        self.end_effector_frame = self.config.ee_frame
+        
+        # Adjust frames for namespace
+        if self.ns:
             self.end_effector_frame = self.ns[1:] + '_' + self.end_effector_frame
 
         # High-level CRISP Robot Client
         self.robot = make_robot(
             "fr3", 
             node=self, 
-            target_joint_topic="internal/target_joint", 
-            target_pose_topic="internal/target_pose",
+            target_joint_topic=self.config.target_joint_topic, 
+            target_pose_topic=self.config.target_pose_topic,
             namespace=self.ns[1:] if self.ns else "",
             use_prefix=True,
-            base_frame="world",
+            base_frame=self.base_frame,
             target_frame=self.end_effector_frame,
             use_tf_pose=True,
             spin_node=False
@@ -71,6 +86,19 @@ class CartesianPosePublisher(Node):
 
         self.target_pose_publisher_ = self.create_publisher(PoseStamped, self.ns + '/target_pose', 1)
         self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
+        
+        # VR Policy Control
+        self.controller = VRPolicy(
+            right_controller=self.config.right_controller, 
+            max_lin_vel=self.config.max_lin_vel,
+            max_rot_vel=self.config.max_rot_vel,
+            max_gripper_vel=self.config.max_gripper_vel,
+            spatial_coeff=self.config.spatial_coeff,
+            pos_action_gain=self.config.pos_action_gain,
+            rot_action_gain=self.config.rot_action_gain,
+            gripper_action_gain=self.config.gripper_action_gain,
+            rmat_reorder=self.config.rmat_reorder,
+        )
         self.debug_publisher_ = self.create_publisher(FMQDebug, self.ns + '/mq_debug', 1)
         # TODO: add YAML
         self.timer = self.create_timer(1.0 / 50, self.timer_callback)
@@ -80,8 +108,6 @@ class CartesianPosePublisher(Node):
 
         self.latest_cmd_pos = None
         self.latest_cmd_quat = None
-
-        self.controller = VRPolicy()
 
         self.controller.reset_state()
         

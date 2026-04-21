@@ -29,6 +29,11 @@ def generate_robot_nodes(context):
             name='oculus_action_'+item_name,
             namespace=item_name,
             output='screen',
+            parameters=[
+                {
+                    'teleop_config': LaunchConfiguration('teleop_config'),
+                }
+            ],
             remappings=[
                 ('tf', '/tf'),
                 ('tf_static', '/tf_static')
@@ -70,5 +75,10 @@ def generate_launch_description():
             default_value="true",
             description="Spawn franka right",
         ),
+        DeclareLaunchArgument('teleop_config', 
+                          default_value=PathJoinSubstitution([
+                              FindPackageShare('franka_meta_quest'), 'config', 'teleop.yaml'
+                          ]),
+                          description='Path to the teleop configuration file'),
         OpaqueFunction(function=generate_robot_nodes),
     ])
