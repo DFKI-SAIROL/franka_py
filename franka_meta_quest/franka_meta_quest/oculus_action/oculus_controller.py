@@ -346,4 +346,5 @@ class VRPolicy:
 
     def close(self):
         self.is_running = False
-        self.thread.join()
+        if hasattr(self, 'thread'):
+            self.thread.join()

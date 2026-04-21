@@ -16,6 +16,8 @@ from builtin_interfaces.msg import Time, Duration as ROSDuration
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster
 from franka_custom_msgs.msg import FMQDebug, FIJKDebug
 from std_srvs.srv import Trigger
+from crisp_py.robot import make_robot
+
 try:
     from .oculus_controller import VRPolicy
     from .transformations import euler_to_quat
@@ -24,14 +26,12 @@ except:
     from transformations import euler_to_quat
 
 class CartesianPosePublisher(Node):
-
     def __init__(self):
         super().__init__('meta_quest')
 
         self.ns = self.get_namespace()
         if self.ns == '/':
             self.ns = ''
-            
         self.declare_parameter('base_frame', 'base')
         self.declare_parameter('end_effector_frame', 'rh_p12_rn_grasp_point')
         
@@ -53,8 +53,19 @@ class CartesianPosePublisher(Node):
         if self.ns != '':
             self.end_effector_frame = self.ns[1:] + '_' + self.end_effector_frame
 
-        self.joint_subscriber_ = self.create_subscription(JointState, self.ns + '/franka/joint_states', self.joint_state_callback, 1)
-        self.gripper_subscriber_ = self.create_subscription(JointState, self.ns + '/franka_gripper/joint_states', self.gripper_state_callback, 1)
+        # High-level CRISP Robot Client
+        self.robot = make_robot(
+            "fr3", 
+            node=self, 
+            target_joint_topic="internal/target_joint", 
+            target_pose_topic="internal/target_pose",
+            namespace=self.ns[1:] if self.ns else "",
+            use_prefix=True,
+            base_frame="world",
+            target_frame=self.end_effector_frame,
+            use_tf_pose=True,
+            spin_node=False
+        )
         
         self.fijk_subscriber_ = self.create_subscription(FIJKDebug, self.ns + '/fijk_debug', self.fijk_callback, 1)
 
@@ -64,13 +75,8 @@ class CartesianPosePublisher(Node):
         # TODO: add YAML
         self.timer = self.create_timer(1.0 / 50, self.timer_callback)
 
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
         self.tf_broadcaster = TransformBroadcaster(self)
         self.init_transform = None
-
-        self.current_joint_state = JointState()
-        self.current_gripper_state = JointState()
 
         self.latest_cmd_pos = None
         self.latest_cmd_quat = None
@@ -81,12 +87,12 @@ class CartesianPosePublisher(Node):
         
         # Service Clients for Data Collection
         self.cli_rec = self.create_client(Trigger, '/data_collector/record_data_trigger')
-        self.reset_home = self.create_client(Trigger, '~/reset_home', 1)
+        self.reset_home = self.create_client(Trigger, '~/reset_home')
         
         # State tracking for buttons
         self.last_buttons = {"A": False, "B": False, "X": False, "Y": False}
 
-        self.get_logger().info('VRPolicy Publisher started.')
+        self.get_logger().info('VR Teleop Node (CRISP-ready) started.')
 
     def fijk_callback(self, msg):
         """Continuously caches the exact mathematical target the C++ node is holding."""
@@ -98,12 +104,6 @@ class CartesianPosePublisher(Node):
             msg.cmd_pose.orientation.w
         ])
 
-    def joint_state_callback(self, msg):
-        self.current_joint_state = msg
-
-    def gripper_state_callback(self, msg):
-        self.current_gripper_state = msg
-
     def call_service_async(self, client, name):
         if not client.wait_for_service(timeout_sec=1.0):
             self.get_logger().warn(f'Service {name} not available')
@@ -113,35 +113,36 @@ class CartesianPosePublisher(Node):
         future = client.call_async(req)
         # We don't block waiting for result to avoid freezing the loop
 
-    def lookup_transform(self):
+    def _get_current_robot_state(self):
+        """Fetch current cartesian and gripper state of the real robot using crisp_py"""
         try:
-            transform = self.tf_buffer.lookup_transform(self.base_frame, self.end_effector_frame, rclpy.time.Time(), Duration(seconds=0.05))
-            translation = np.array([transform.transform.translation.x,
-                                   transform.transform.translation.y,
-                                   transform.transform.translation.z])
-            rotation = np.array([transform.transform.rotation.x, 
-                                 transform.transform.rotation.y, 
-                                 transform.transform.rotation.z, 
-                                 transform.transform.rotation.w])
-
-            return True, translation, rotation
+            if not self.robot.is_ready():
+                return False, None
+            
+            pose = self.robot.end_effector_pose
+            robot_state_dict = {
+                "cartesian_position": pose.position,
+                "cartesian_rotation": pose.orientation.as_quat(), # Convert to [x,y,z,w]
+                "gripper_position": self.robot.joint_values[7] if self.robot.nq > 7 else 0.0
+            }
+            return True, robot_state_dict
         except Exception as e:
-            self.get_logger().warn(f"Could not transform: {e}")
-            return False, np.zeros(3), np.zeros(4)
-        
+            self.get_logger().debug(f"Robot state not yet available: {e}")
+            return False, None
+
     def to_ros_point(self, p):
         ros_point = Point()
-        ros_point.x = p[0]
-        ros_point.y = p[1]
-        ros_point.z = p[2]
+        ros_point.x = float(p[0])
+        ros_point.y = float(p[1])
+        ros_point.z = float(p[2])
         return ros_point
 
     def to_ros_quat(self, q):
         ros_quat = Quaternion()
-        ros_quat.x = q[0]
-        ros_quat.y = q[1]
-        ros_quat.z = q[2]
-        ros_quat.w = q[3]
+        ros_quat.x = float(q[0])
+        ros_quat.y = float(q[1])
+        ros_quat.z = float(q[2])
+        ros_quat.w = float(q[3])
         return ros_quat
 
     def _apply_safety_shields(self, target_pos, target_quat, controller_action_info):
@@ -168,9 +169,9 @@ class CartesianPosePublisher(Node):
         MAX_POS_STEP = 0.02   # 45 cm/s robot limit
         MAX_QUAT_STEP = 0.15  # 135 deg/s robot limit
         
-        # Outlier Rejection: 0.08m per VR tick = 1.2 m/s jumping. 
+        # Outlier Rejection: 0.04m per tick is very high for VR headset local motion
         if raw_pos_dist > 0.04:
-            self.get_logger().warn(f"Dropped VR frame: impossible tracker jump ({raw_pos_dist:.3f}m > 0.08m)")
+            self.get_logger().warn(f"Dropped VR frame: impossible tracker jump ({raw_pos_dist:.3f}m > 0.04m)")
             # Keep robot safely exactly where it was previously commanded
             return self.controller.last_target["pos"], self.controller.last_target["quat"]
 
@@ -217,19 +218,6 @@ class CartesianPosePublisher(Node):
         
         return a_pressed, b_pressed
 
-    def _get_current_robot_state(self):
-        """Fetch current cartesian and gripper state of the real robot"""
-        succ, translation, rotation = self.lookup_transform()
-        if not succ:
-            return False, None
-            
-        robot_state_dict = {
-            "cartesian_position": translation,
-            "cartesian_rotation": rotation,
-            "gripper_position": self.current_gripper_state.position[0] if len(self.current_gripper_state.position) > 0 else 0.0
-        }
-        return True, robot_state_dict
-        
     def _compute_home_override(self, b_pressed):
         """Compute smooth homing trajectory if B is held"""
         target_pos = np.array([0.4, -0.3, 0.15])
@@ -330,7 +318,7 @@ class CartesianPosePublisher(Node):
         gripper_msg.joint_names = [f"{prefix}rh_r1"]
         
         point = JointTrajectoryPoint()
-        point.positions = [target_gripper * 1.1]
+        point.positions = [float(target_gripper * 1.1)]
         
         # ~66ms duration for trajectory execution to match 15Hz loop
         point.time_from_start.nanosec = 20_000_000 # 66_666_666
@@ -388,6 +376,10 @@ class CartesianPosePublisher(Node):
         self.debug_publisher_.publish(debug_msg)
 
     def timer_callback(self):
+        # Ensure robot client is ready before processing
+        if not self.robot.is_ready():
+            return
+
         controller_info = self.controller.get_info()
         a_pressed, b_pressed = self._handle_recording_triggers(controller_info)
         
@@ -423,7 +415,7 @@ class CartesianPosePublisher(Node):
                 sync_pos = self.latest_cmd_pos.copy() if self.latest_cmd_pos is not None \
                    else robot_state_dict["cartesian_position"].copy()
                 sync_quat = self.latest_cmd_quat.copy() if self.latest_cmd_quat is not None \
-                            else robot_state_dict["cartesian_rotation"].copy()
+                             else robot_state_dict["cartesian_rotation"].copy()
                 self.controller.last_target = {"pos": sync_pos, "quat": sync_quat}
                 self.controller.robot_origin = {"pos": sync_pos, "quat": sync_quat}
                 if hasattr(self.controller, 'vr_state') and self.controller.vr_state is not None:
