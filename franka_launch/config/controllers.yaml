@@ -325,6 +325,13 @@
           franka_right_fr3_joint5.value: 30.0
           franka_right_fr3_joint6.value: 20.0
           franka_right_fr3_joint7.value: 10.0
+          franka_left_fr3_joint1.value: 100.0
+          franka_left_fr3_joint2.value: 100.0
+          franka_left_fr3_joint3.value: 100.0
+          franka_left_fr3_joint4.value: 100.0
+          franka_left_fr3_joint5.value: 30.0
+          franka_left_fr3_joint6.value: 20.0
+          franka_left_fr3_joint7.value: 10.0
 
       use_friction: false
       use_coriolis_compensation: true

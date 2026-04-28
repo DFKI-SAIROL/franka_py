@@ -31,7 +31,9 @@ def generate_robot_nodes(context):
             output='screen',
             parameters=[
                 {
-                    'teleop_config': LaunchConfiguration('teleop_config'),
+                    'teleop_config': PathJoinSubstitution([
+                        FindPackageShare('franka_meta_quest'), 'config', f'teleop_{"right" if "right" in item_name else "left"}.yaml'
+                    ]),
                 }
             ],
             remappings=[
