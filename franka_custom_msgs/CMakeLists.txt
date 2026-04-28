@@ -18,6 +18,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/FMQDebug.msg"
   "msg/FIJKDebug.msg"
+  "srv/SetPoseStamped.srv"
     DEPENDENCIES std_msgs geometry_msgs
 )
 

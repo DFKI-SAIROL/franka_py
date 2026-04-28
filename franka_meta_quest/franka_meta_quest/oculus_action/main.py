@@ -15,6 +15,7 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Time, Duration as ROSDuration
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster
 from franka_custom_msgs.msg import FMQDebug, FIJKDebug
+from franka_custom_msgs.srv import SetPoseStamped
 from std_srvs.srv import Trigger
 from crisp_py.robot import make_robot
 from omegaconf import OmegaConf
@@ -84,7 +85,7 @@ class CartesianPosePublisher(Node):
         
         self.fijk_subscriber_ = self.create_subscription(FIJKDebug, self.ns + '/fijk_debug', self.fijk_callback, 1)
 
-        self.target_pose_publisher_ = self.create_publisher(PoseStamped, self.ns + '/target_pose', 1)
+        self.target_pose_client_ = self.create_client(SetPoseStamped, self.ns + '/target_pose')
         self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
         
         # VR Policy Control
@@ -319,7 +320,12 @@ class CartesianPosePublisher(Node):
         msg.header.frame_id = self.base_frame
         msg.pose.position =  self.to_ros_point(translation)
         msg.pose.orientation = self.to_ros_quat(rotation)
-        self.target_pose_publisher_.publish(msg)
+        if self.target_pose_client_.service_is_ready():
+            req = SetPoseStamped.Request()
+            req.pose = msg
+            self.target_pose_client_.call_async(req)
+        else:
+            self.get_logger().debug('Target pose service not ready, skipping command.')
 
         # Broadcast Target Pose TF for RViz
         t = TransformStamped()
