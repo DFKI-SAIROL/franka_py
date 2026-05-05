@@ -101,5 +101,26 @@
     </xacro:zed_camera>
 
   </xacro:if>
+  
+  <!-- ============================================== -->
+  <!-- Unified Grasp Point (Consistent Name)          -->
+  <!-- ============================================== -->
+  <xacro:if value="${'$(arg gripper_type)' == 'franka_default'}">
+    <link name="${modified_prefix}grasp_point" />
+    <joint name="${modified_prefix}grasp_point_joint" type="fixed">
+      <parent link="${modified_prefix}fr3_hand_tcp" />
+      <child link="${modified_prefix}grasp_point" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
+    </joint>
+  </xacro:if>
+
+  <xacro:if value="${'$(arg gripper_type)' == 'rh_p12_rn_a'}">
+    <link name="${modified_prefix}grasp_point" />
+    <joint name="${modified_prefix}grasp_point_joint" type="fixed">
+      <parent link="${modified_prefix}rh_p12_rn_grasp_point" />
+      <child link="${modified_prefix}grasp_point" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
+    </joint>
+  </xacro:if>
 
 </robot>

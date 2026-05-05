@@ -19,7 +19,7 @@ rmat_reorder: [-2, -1, -3, 4]
 
 # Robot Frames
 base_frame: "world"
-ee_frame: "fr3_link8"
+ee_frame: "grasp_point"
 
 # Robot Communication
 publish_joint_trajectory: true
