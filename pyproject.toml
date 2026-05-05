@@ -63,7 +63,7 @@ suppress-dummy-args = true
 suppress-none-returning = true
 
 [tool.ruff.format]
-quote-style = "double"
+quote-style = "single"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"

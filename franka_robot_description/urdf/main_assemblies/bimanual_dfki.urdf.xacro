@@ -13,6 +13,8 @@
   <xacro:arg name="arm_prefix" default="" />
   <xacro:arg name="xyz" default="0 0 0" />
   <xacro:arg name="rpy" default="0 0 0" />
+  <xacro:arg name="xyz_ee" default="0 0 0" />
+  <xacro:arg name="rpy_ee" default="0 0 0" />
   
   <!-- "none", "franka_default", "rh_p12_rn_a" -->
   <xacro:arg name="gripper_type" default="franka_default" /> 
@@ -62,6 +64,8 @@
       arm_prefix="${modified_prefix}"
       xyz="$(arg xyz)"
       rpy="$(arg rpy)"
+      xyz_ee="$(arg xyz_ee)"
+      rpy_ee="$(arg rpy_ee)"
       parent="$(arg parent)"
       connected_to="$(arg parent)">
   </xacro:franka_robot>
@@ -80,14 +84,14 @@
         fake_sensor_commands="$(arg fake_sensor_commands)"
         ros2_control="$(arg gripper_ros2_control)"
         use_sim="$(arg use_sim)">
-        <origin xyz="0 0 0.0025" rpy="0 0 -0.785398"/> <!-- adjust rotation if necessary -->
+        <origin xyz="$(arg xyz_ee)" rpy="$(arg rpy_ee)"/>
     </xacro:rh_p12_gripper>
   </xacro:if>
 
   <!-- ============================================== -->
   <!-- Zed Camera Attachments                    -->
   <!-- ============================================== -->
-  <xacro:if value="${'$(arg camera_name)' == 'zed'}">
+  <xacro:if value="${'$(arg camera_name)' == 'zed' and '$(arg gripper_type)' == 'rh_p12_rn_a'}">
     <xacro:include filename="$(find franka_robot_description)/urdf/cameras/zed/zed_macro.urdf.xacro" />
     <xacro:zed_camera name="$(arg camera_name)" model="$(arg camera_model)" parent="${modified_prefix}$(arg arm_id)_link8">
       <origin 
