@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
-import math
 import numpy as np
-import threading
-import sys
-import termios
 from scipy.spatial.transform import Rotation
 
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time, Duration
-from geometry_msgs.msg import PoseStamped, TransformStamped, Pose, Point, Quaternion
-from sensor_msgs.msg import JointState
+from geometry_msgs.msg import PoseStamped, TransformStamped, Point, Quaternion
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from builtin_interfaces.msg import Time, Duration as ROSDuration
-from tf2_ros import Buffer, TransformListener, TransformBroadcaster
+from tf2_ros import TransformBroadcaster
 from franka_custom_msgs.msg import FMQDebug, FIJKDebug
 from franka_custom_msgs.srv import SetPoseStamped
 from std_srvs.srv import Trigger
-from crisp_py.robot import make_robot
 from omegaconf import OmegaConf
+
+# crisp related packages
+from crisp_py.robot import make_robot
+from crisp_py.gripper import make_gripper
 
 try:
     from .oculus_controller import VRPolicy
@@ -87,6 +83,41 @@ class CartesianPosePublisher(Node):
 
         self.target_pose_client_ = self.create_client(SetPoseStamped, self.ns + '/target_pose')
         self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
+        
+        # Gripper Control Mode (Read from Robot Description Config)
+        self.declare_parameter('robot_config', '')
+        robot_config_path = self.get_parameter('robot_config').get_parameter_value().string_value
+        
+        self.gripper_type = 'rh_p12_rn_a' # Default fallback
+        if robot_config_path:
+            try:
+                rb_conf = OmegaConf.load(robot_config_path)
+                self.gripper_type = rb_conf.robot_config.gripper_type
+                self.get_logger().info(f'Detected gripper type: {self.gripper_type} from {robot_config_path}')
+            except Exception as e:
+                self.get_logger().error(f'Failed to load robot_config: {e}')
+
+        if self.gripper_type == 'franka_default':
+            self.get_logger().info("Initializing Franka gripper using crisp_py...")
+            self.gripper = make_gripper(
+                "gripper_franka", 
+                node=self, 
+                namespace=self.ns[1:] if self.ns else "",
+                spin_node=False,
+                min_value=0.0,
+                max_value=0.039,
+                joint_state_topic="franka_gripper/joint_states",
+                command_topic="franka_gripper/gripper_action",
+                use_gripper_command_action=True,
+                max_effort=100.0,
+                max_delta=0.15
+            )
+            self.last_gripper_state = False  # False = Open, True = Closed
+            self._gripper_opened = False     # Will open once on first ready tick
+            self._trigger_pressed_last_tick = False # Used for toggle logic
+
+        else:
+            self.gripper = None
         
         # VR Policy Control
         self.controller = VRPolicy(
@@ -343,19 +374,43 @@ class CartesianPosePublisher(Node):
         self.tf_broadcaster.sendTransform(t)
 
         # Publish Gripper
-        gripper_msg = JointTrajectory()
-        gripper_msg.header.stamp = self.get_clock().now().to_msg()
-        
-        prefix = self.ns[1:] + "_" if self.ns != "" else ""
-        gripper_msg.joint_names = [f"{prefix}rh_r1"]
-        
-        point = JointTrajectoryPoint()
-        point.positions = [float(target_gripper * 1.1)]
-        
-        # ~66ms duration for trajectory execution to match 15Hz loop
-        point.time_from_start.nanosec = 20_000_000 # 66_666_666
-        gripper_msg.points = [point]
-        self.gripper_publisher_.publish(gripper_msg)
+        if self.gripper_type == 'franka_default' and self.gripper:
+            if not self._gripper_opened and self.gripper.is_ready():
+                    self.gripper.open() # Forces it to 1.0 (Open)
+                    self._gripper_opened = True
+                    return msg
+            elif self.gripper.is_ready():
+                # VR trigger convention: ~1.0 pressed, ~0.0 released
+                is_currently_pressed = target_gripper > 0.6
+                
+                if is_currently_pressed and not self._trigger_pressed_last_tick:
+                    # TOGGLE the state
+                    self.last_gripper_state = not self.last_gripper_state
+                    
+                    if self.last_gripper_state: # New state is CLOSED
+                        self.gripper.close()
+                        print(f'FRANKA [{self.ns}] | TOGGLE: CLOSING (Trigger: {target_gripper:.3f})')
+                    else: # New state is OPEN
+                        self.gripper.open()
+                        print(f'FRANKA [{self.ns}] | TOGGLE: OPENING (Trigger: {target_gripper:.3f})')
+
+                # Update the tracker for the next tick
+                self._trigger_pressed_last_tick = is_currently_pressed
+        else:
+            # Default Trajectory Publisher (Robotis)
+            gripper_msg = JointTrajectory()
+            gripper_msg.header.stamp = self.get_clock().now().to_msg()
+            
+            prefix = self.ns[1:] + "_" if self.ns != "" else ""
+            gripper_msg.joint_names = [f"{prefix}rh_r1"]
+            
+            point = JointTrajectoryPoint()
+            point.positions = [float(target_gripper * 1.1)]
+            
+            # ~66ms duration for trajectory execution to match 15Hz loop
+            point.time_from_start.nanosec = 20_000_000 # 66_666_666
+            gripper_msg.points = [point]
+            self.gripper_publisher_.publish(gripper_msg)
         return msg
 
     def _publish_debug_info(self, msg_header, controller_info, controller_action_info, final_translation, final_rotation):
