@@ -101,6 +101,15 @@ def generate_robot_nodes(context):
         f'/**/{arm_controller}': {'ros__parameters': {'joints': joints_list}},
     }
 
+    if arm_controller == 'joint_trajectory_controller':
+        # joint_impedance_controller would fail with it. joint_trajectory_controller 
+        jtc_p = [600., 600., 600., 600., 250., 150.,  50.]
+        jtc_d = [ 30.,  30.,  30.,  30.,  10.,  10.,   5.]
+        controller_params['/**/joint_trajectory_controller']['ros__parameters']['gains'] = {
+            joint: {'p': p, 'd': d, 'i': 0.0, 'i_clamp': 1.0}
+            for joint, p, d in zip(joints_list, jtc_p, jtc_d)
+        }
+
     if load_franka_gripper and use_fake_hardware:
         gripper_joint = (
             f'{arm_prefix}_{arm_id}_finger_joint1' if arm_prefix else f'{arm_id}_finger_joint1'

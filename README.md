@@ -2,7 +2,6 @@
   - [1.1. Info - Main modules](#11-info---main-modules)
     - [1.1.1. franka\_launch](#111-franka_launch)
     - [1.1.2. franka\_meta\_quest](#112-franka_meta_quest)
-    - [1.1.3. franka\_joint\_trajectory\_controller](#113-franka_joint_trajectory_controller)
     - [1.1.4. franka\_safety\_layer](#114-franka_safety_layer)
   - [1.2. Info - Helper and old modules](#12-info---helper-and-old-modules)
     - [1.2.1. franka\_adaptable\_controllers](#121-franka_adaptable_controllers)
@@ -40,10 +39,6 @@ Currently it publishes the teleoperated target pose using a geometry_msgs.msg.Po
 
 For the tracking of the joysticks to work well, it is important that the meta quest is placed stationary such that the joysticks are visible by its camera system.
 
-### 1.1.3. franka_joint_trajectory_controller
-
-This package is used for interpolating the 15-50Hz commands to the robot's required 1000Hz.
-The package is copied from the joint_trajectory_controller and is adapted to support the namespaces required when using the bimanual setup.
 
 ### 1.1.4. franka_safety_layer
 
