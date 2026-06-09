@@ -40,7 +40,7 @@ actions:
   - type: "DeltaJoint"
     start_idx: 0
     end_idx: 7
-    topic: "/franka_right/target_dq"
+    topic: "/franka_right/policy_target_dq"
     msgtype: sensor_msgs/msg/JointState
     joint_names: [
       "franka_right_fr3_joint1", 
