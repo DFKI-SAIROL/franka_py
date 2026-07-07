@@ -386,7 +386,7 @@ class FMQDebugExtractor(BaseMSGExtractor):
         return np.concatenate(out)
 
 
-@register_msg_extractor("custom_interfaces/msg/RigSnapshot")
+@register_msg_extractor("franka_custom_msgs/msg/RigSnapshot")
 class RigSnapshotMSGExtractor(BaseMSGExtractor):
     def __init__(self, **config) -> None:
         super().__init__(**config)
@@ -402,7 +402,7 @@ class RigSnapshotMSGExtractor(BaseMSGExtractor):
 
     @property
     def msgtype(self) -> str:
-        return "custom_interfaces/msg/RigSnapshot"
+        return "franka_custom_msgs/msg/RigSnapshot"
 
     @property
     def shape(self) -> Tuple:

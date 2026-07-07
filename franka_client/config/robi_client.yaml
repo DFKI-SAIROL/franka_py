@@ -14,14 +14,14 @@ mappings:
       n_dof: 1
   "observation.images.image":
     topic: "/zed_rig/synced_raw_snapshot"
-    msgtype: "custom_interfaces/msg/RigSnapshot"
+    msgtype: "franka_custom_msgs/msg/RigSnapshot"
     camera_name: zed_middle
     resize: [224, 224]
     center_crop: True
     encoding: rgb8
   "observation.images.image2":
     topic: "/zed_rig/synced_raw_snapshot"
-    msgtype: "custom_interfaces/msg/RigSnapshot"
+    msgtype: "franka_custom_msgs/msg/RigSnapshot"
     camera_name: zed_right_arm
     resize: [224, 224]
     center_crop: True

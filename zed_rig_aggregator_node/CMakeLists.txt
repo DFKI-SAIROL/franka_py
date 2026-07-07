@@ -13,14 +13,14 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(custom_interfaces REQUIRED)
+find_package(franka_custom_msgs REQUIRED)
 
 # 2. Executable
 add_executable(zed_rig_aggregator_node src/zed_rig_aggregator.cpp)
 ament_target_dependencies(zed_rig_aggregator_node
   rclcpp
   sensor_msgs
-  custom_interfaces
+  franka_custom_msgs
 )
 
 # 3. Install Executable
