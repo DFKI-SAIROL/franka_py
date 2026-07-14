@@ -19,8 +19,6 @@ rmat_reorder: [-2, -1, -3, 4]
 
 # Robot Frames
 base_frame: "world"
-# end_effector_frame will be handled dynamically in main.py (e.g. adding namespace)
-ee_frame: "rh_p12_rn_grasp_point"
 
 # Robot Communication
 publish_joint_trajectory: true

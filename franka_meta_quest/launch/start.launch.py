@@ -1,3 +1,7 @@
+import os
+import sys
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
@@ -7,11 +11,18 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+package_share = get_package_share_directory('franka_launch')
+utils_path = os.path.join(package_share, '..', '..', 'lib', 'franka_launch', 'utils')
+sys.path.append(os.path.abspath(utils_path))
+from launch_utils import merge_overrides
+
 
 def generate_robot_nodes(context):
 
     nodes = []
-    
+
+    overrides_file = LaunchConfiguration('overrides_file').perform(context)
+
     spawn_robots = []
     if LaunchConfiguration('spawn_franka_main').perform(context).lower() == 'true':
         spawn_robots.append("franka_main")
@@ -20,8 +31,21 @@ def generate_robot_nodes(context):
     if LaunchConfiguration('spawn_franka_right').perform(context).lower() == 'true':
         spawn_robots.append("franka_right")
     
-    for item_name in spawn_robots: 
+    for item_name in spawn_robots:
         print("Spawn", item_name)
+
+        arm_overrides = merge_overrides({}, overrides_file, item_name)
+
+        node_parameters = {
+            'teleop_config': PathJoinSubstitution([
+                FindPackageShare('franka_meta_quest'), 'config', f'teleop_{"right" if "right" in item_name else "left"}.yaml'
+            ]),
+            'robot_config': PathJoinSubstitution([
+                FindPackageShare('franka_robot_description'), 'config', f'dfki_fr3_{"right" if "right" in item_name else "left"}.yaml'
+            ]),
+        }
+        if 'end_effector_frame' in arm_overrides:
+            node_parameters['end_effector_frame'] = str(arm_overrides['end_effector_frame'])
 
         nodes.append(Node(
             package='franka_meta_quest',
@@ -29,16 +53,7 @@ def generate_robot_nodes(context):
             name='oculus_action_'+item_name,
             namespace=item_name,
             output='screen',
-            parameters=[
-                {
-                    'teleop_config': PathJoinSubstitution([
-                        FindPackageShare('franka_meta_quest'), 'config', f'teleop_{"right" if "right" in item_name else "left"}.yaml'
-                    ]),
-                    'robot_config': PathJoinSubstitution([
-                        FindPackageShare('franka_robot_description'), 'config', f'dfki_fr3_{"right" if "right" in item_name else "left"}.yaml'
-                    ]),
-                }
-            ],
+            parameters=[node_parameters],
             remappings=[
                 ('tf', '/tf'),
                 ('tf_static', '/tf_static')
@@ -80,10 +95,15 @@ def generate_launch_description():
             default_value="true",
             description="Spawn franka right",
         ),
-        DeclareLaunchArgument('teleop_config', 
+        DeclareLaunchArgument('teleop_config',
                           default_value=PathJoinSubstitution([
                               FindPackageShare('franka_meta_quest'), 'config', 'teleop.yaml'
                           ]),
                           description='Path to the teleop configuration file'),
+        DeclareLaunchArgument(
+            'overrides_file',
+            default_value='',
+            description='Path to a robot_overrides.yaml that overrides per-arm end_effector_frame',
+        ),
         OpaqueFunction(function=generate_robot_nodes),
     ])

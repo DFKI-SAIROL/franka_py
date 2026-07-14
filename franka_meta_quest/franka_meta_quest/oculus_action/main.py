@@ -59,11 +59,17 @@ class CartesianPosePublisher(Node):
             })
 
         self.base_frame = self.config.base_frame
-        self.end_effector_frame = self.config.ee_frame
-        
-        # Adjust frames for namespace
-        if self.ns:
-            self.end_effector_frame = self.ns[1:] + '_' + self.end_effector_frame
+
+        # override the ee_frame from franka_launch config or the root ws
+        self.declare_parameter('end_effector_frame', '')
+        end_effector_frame_override = self.get_parameter('end_effector_frame').get_parameter_value().string_value
+        if end_effector_frame_override:
+            self.end_effector_frame = end_effector_frame_override
+        else:
+            self.end_effector_frame = "grasp_point"
+            # Adjust frames for namespace
+            if self.ns:
+                self.end_effector_frame = self.ns[1:] + '_' + self.end_effector_frame
 
         # High-level CRISP Robot Client
         self.robot = make_robot(
