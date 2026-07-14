@@ -1,3 +1,5 @@
+import sys
+import types
 import yaml
 import threading
 from queue import Queue
@@ -13,6 +15,7 @@ from rclpy.node import Node
 from pynput import keyboard
 from geometry_msgs.msg import PoseStamped
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from franka_custom_msgs.srv import SetPoseStamped
 
 import services_pb2
 import services_pb2_grpc
@@ -20,7 +23,20 @@ from lerobot_utils import grpc_channel_options, send_bytes_in_chunks, get_logger
 from action_processors import ACTION_PROCESSORS
 
 # Import identical dataclasses to allow correct unpickling on the server
-from franka_client.client import TimedObservation, TimedAction, Action
+from franka_client.client import TimedData, TimedObservation, TimedAction, Action, RawObservation
+
+# adjust to replay_server.py
+_mock_franka_policy = types.ModuleType("franka_policy")
+_mock_franka_policy_common = types.ModuleType("franka_policy.common")
+_mock_franka_policy_dataclasses = types.ModuleType("franka_policy.common.dataclasses")
+_mock_franka_policy_dataclasses.TimedData = TimedData
+_mock_franka_policy_dataclasses.TimedAction = TimedAction
+_mock_franka_policy_dataclasses.TimedObservation = TimedObservation
+_mock_franka_policy_dataclasses.Action = Action
+_mock_franka_policy_dataclasses.RawObservation = RawObservation
+sys.modules["franka_policy"] = _mock_franka_policy
+sys.modules["franka_policy.common"] = _mock_franka_policy_common
+sys.modules["franka_policy.common.dataclasses"] = _mock_franka_policy_dataclasses
 
 class ReplayClient(Node):
     def __init__(self, config_file_path: str):
@@ -37,7 +53,8 @@ class ReplayClient(Node):
         self._setup_processors_and_pubs(self.config.get("actions", []))
         
         self.home_pose_cfg = self.config.get('home_pose', {})
-        self.home_pub = self.create_publisher(PoseStamped, self.home_pose_cfg.get('topic'), 1)
+        # target_pose only exists as a franka_custom_msgs/srv/SetPoseStamped service
+        self.home_pose_client_ = self.create_client(SetPoseStamped, self.home_pose_cfg.get('topic'))
         self.home_gripper_pub = self.create_publisher(
             JointTrajectory,
             self.home_pose_cfg.get('gripper_topic', '/franka_right/gripper/gripper_controller/joint_trajectory'),
@@ -179,8 +196,13 @@ class ReplayClient(Node):
         
         msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = pos[0], pos[1], pos[2]
         msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w = quat[0], quat[1], quat[2], quat[3]
-        
-        self.home_pub.publish(msg)
+
+        if self.home_pose_client_.service_is_ready():
+            req = SetPoseStamped.Request()
+            req.pose = msg
+            self.home_pose_client_.call_async(req)
+        else:
+            self.logger.error("target_pose service not ready, cannot send home pose.")
 
         gripper_msg = JointTrajectory()
         gripper_msg.header.stamp = stamp
