@@ -14,7 +14,7 @@ from launch_ros.substitutions import FindPackageShare
 package_share = get_package_share_directory('franka_launch')
 utils_path = os.path.join(package_share, '..', '..', 'lib', 'franka_launch', 'utils')
 sys.path.append(os.path.abspath(utils_path))
-from launch_utils import merge_overrides
+from launch_utils import load_overrides, merge_overrides, resolve_bool_override
 
 
 def generate_robot_nodes(context):
@@ -22,13 +22,23 @@ def generate_robot_nodes(context):
     nodes = []
 
     overrides_file = LaunchConfiguration('overrides_file').perform(context)
+    overrides = load_overrides(overrides_file)
+    enable_audio = resolve_bool_override(
+        {}, 'enable_audio', LaunchConfiguration('enable_audio').perform(context), False
+    )
 
     spawn_robots = []
     if LaunchConfiguration('spawn_franka_main').perform(context).lower() == 'true':
         spawn_robots.append("franka_main")
-    if LaunchConfiguration('spawn_franka_left').perform(context).lower() == 'true':
+    if resolve_bool_override(
+        overrides, 'spawn_franka_left',
+        LaunchConfiguration('spawn_franka_left').perform(context), False,
+    ):
         spawn_robots.append("franka_left")
-    if LaunchConfiguration('spawn_franka_right').perform(context).lower() == 'true':
+    if resolve_bool_override(
+        overrides, 'spawn_franka_right',
+        LaunchConfiguration('spawn_franka_right').perform(context), True,
+    ):
         spawn_robots.append("franka_right")
     
     for item_name in spawn_robots:
@@ -41,7 +51,7 @@ def generate_robot_nodes(context):
                 FindPackageShare('franka_meta_quest'), 'config', f'teleop_{"right" if "right" in item_name else "left"}.yaml'
             ]),
             'robot_config': PathJoinSubstitution([
-                FindPackageShare('franka_robot_description'), 'config', f'dfki_fr3_{"right" if "right" in item_name else "left"}.yaml'
+                FindPackageShare('franka_launch'), 'config', f'dfki_fr3_{"right" if "right" in item_name else "left"}.yaml'
             ]),
         }
         if 'end_effector_frame' in arm_overrides:
@@ -60,13 +70,14 @@ def generate_robot_nodes(context):
             ]
         ))
         
-        nodes.append(Node(
-            package='franka_meta_quest',
-            executable='meta_quest_audio_publisher',
-            name='oculus_audio_'+item_name,
-            namespace=item_name,
-            output='screen',
-        ))
+        if enable_audio:
+            nodes.append(Node(
+                package='franka_meta_quest',
+                executable='meta_quest_audio_publisher',
+                name='oculus_audio_'+item_name,
+                namespace=item_name,
+                output='screen',
+            ))
     return nodes
 
 
@@ -87,13 +98,13 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "spawn_franka_left",
-            default_value="false",
-            description="Spawn franka left",
+            default_value="",
+            description="Spawn franka left (overrides file, then false; CLI takes precedence)",
         ),
         DeclareLaunchArgument(
             "spawn_franka_right",
-            default_value="true",
-            description="Spawn franka right",
+            default_value="",
+            description="Spawn franka right (overrides file, then true; CLI takes precedence)",
         ),
         DeclareLaunchArgument('teleop_config',
                           default_value=PathJoinSubstitution([
@@ -104,6 +115,11 @@ def generate_launch_description():
             'overrides_file',
             default_value='',
             description='Path to a robot_overrides.yaml that overrides per-arm end_effector_frame',
+        ),
+        DeclareLaunchArgument(
+            'enable_audio',
+            default_value='false',
+            description='Start the experimental Meta Quest audio publisher',
         ),
         OpaqueFunction(function=generate_robot_nodes),
     ])
