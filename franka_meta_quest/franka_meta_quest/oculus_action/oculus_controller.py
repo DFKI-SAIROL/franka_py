@@ -57,10 +57,14 @@ class VRPolicy:
         # 1. Read Controller
         poses, buttons = self.oculus_reader.get_transformations_and_buttons()
         
-        # 2. Update Watchdog (controller_on)
-        self._reader_state["controller_on"] = (poses != {})
-        
-        if poses == {}:
+        # 2. Update Watchdog (controller_on). The Quest can report one controller without the
+        # other (asleep / out of view): then this one counts as off instead of a KeyError.
+        tracked = (self.controller_id in poses
+                   and all(self.controller_id.upper() + b in buttons for b in ("G", "J"))
+                   and self.extended_controller_id + "JS" in buttons)
+        self._reader_state["controller_on"] = tracked
+
+        if not tracked:
             return None, None, {}
 
         # 3. Determine Control Pipeline Flags

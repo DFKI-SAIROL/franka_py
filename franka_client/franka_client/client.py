@@ -92,6 +92,9 @@ class RobiClient(Node):
         # State & keyboard control
         self.policy_active = False
         self.home_pose_cfg = self.config.get('home_pose', {})
+        # Joint-space home when the arm has home_joints (franka_client/joint_home.py)
+        from franka_client.joint_home import make_joint_home
+        self.joint_home = make_joint_home(self, self.home_pose_cfg, self.callback_group)
         self.home_pub = self.create_publisher(
             PoseStamped, 
             self.home_pose_cfg.get('topic'), 
@@ -499,9 +502,13 @@ class RobiClient(Node):
                 if char == 'r':
                     if not self.policy_active:
                         self.get_logger().info("▶️ STARTING Policy (R pressed)")
+                        if self.joint_home is not None:
+                            self.joint_home.stop("policy started")
                         self.policy_active = True
                         
                 elif char == 's':
+                    if self.joint_home is not None:
+                        self.joint_home.stop("stopped (S pressed)")
                     if self.policy_active:
                         self.get_logger().info("🛑 STOPPING Policy (S pressed)")
                         self.policy_active = False
@@ -514,21 +521,7 @@ class RobiClient(Node):
         except Exception as e:
             self.get_logger().error(f"Keyboard listener error: {e}")
 
-    def _send_home_pose(self):
-        """Builds and publishes the Cartesian home position."""
-        stamp = self.get_clock().now().to_msg()
-        msg = PoseStamped()
-        msg.header.stamp = stamp
-        msg.header.frame_id = self.home_pose_cfg.get('frame_id', 'world')
-        
-        pos = self.home_pose_cfg.get('position', [0.3, 0.0, 0.5])
-        quat = self.home_pose_cfg.get('orientation', [1.0, 0.0, 0.0, 0.0])
-        
-        msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = pos[0], pos[1], pos[2]
-        msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w = quat[0], quat[1], quat[2], quat[3]
-        
-        self.home_pub.publish(msg)
-
+    def _open_home_gripper(self, stamp):
         gripper_msg = JointTrajectory()
         gripper_msg.header.stamp = stamp
         gripper_msg.joint_names = [self.home_pose_cfg.get('gripper_joint_name', 'franka_right_rh_r1')]
@@ -542,6 +535,26 @@ class RobiClient(Node):
         gripper_msg.points = [point]
 
         self.home_gripper_pub.publish(gripper_msg)
+
+    def _send_home_pose(self):
+        """Builds and publishes the Cartesian home position."""
+        stamp = self.get_clock().now().to_msg()
+        if self.joint_home is not None and self.joint_home.start():
+            self._open_home_gripper(stamp)
+            return
+        msg = PoseStamped()
+        msg.header.stamp = stamp
+        msg.header.frame_id = self.home_pose_cfg.get('frame_id', 'world')
+        
+        pos = self.home_pose_cfg.get('position', [0.3, 0.0, 0.5])
+        quat = self.home_pose_cfg.get('orientation', [1.0, 0.0, 0.0, 0.0])
+        
+        msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = pos[0], pos[1], pos[2]
+        msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w = quat[0], quat[1], quat[2], quat[3]
+        
+        self.home_pub.publish(msg)
+
+        self._open_home_gripper(stamp)
 
 def main():
     rclpy.init()

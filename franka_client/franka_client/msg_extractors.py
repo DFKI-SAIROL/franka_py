@@ -451,3 +451,152 @@ class FIJKDebugExtractor(BaseMSGExtractor):
             out.append(np.array(data, dtype=np.float32))
 
         return np.concatenate(out)
+
+
+_PC2_DTYPES = {1: np.int8, 2: np.uint8, 3: np.int16, 4: np.uint16, 5: np.int32, 6: np.uint32,
+               7: np.float32, 8: np.float64}
+
+
+@register_msg_extractor("sensor_msgs/msg/PointCloud2")
+class PointCloudExtractor(BaseMSGExtractor):
+    """sensor_msgs/PointCloud2 -> (num_points, 3 | 6) float32: xyz [+ rgb in 0..1].
+
+    Config:
+        num_points: 4096            fixed size of the output
+        fields: xyz | xyzrgb
+        sampling: random | voxel | fps
+                    random: uniform over the points (dense regions keep more points)
+                    voxel:  one point per cell of a grid sized for ~num_points cells, i.e. even
+                            coverage like FPS at a fraction of the cost (~10-40 ms for 80k points)
+                    fps:    farthest point sampling on a random preselection of fps_candidates
+                            (default 2 * num_points) points; ~0.1-0.3 s for 4096, offline use
+        crop: {min: [x, y, z], max: [x, y, z]}   box in the cloud's frame, applied first
+        seed: 0
+
+    Clouds with fewer points are padded by repeating points; an empty cloud gives zeros.
+    """
+
+    def __init__(self, **config):
+        super().__init__(**config)
+        self.num_points = int(self.config.get("num_points", 4096))
+        self.fields = self.config.get("fields", "xyz")
+        if self.fields not in ("xyz", "xyzrgb"):
+            raise ValueError(f"fields must be xyz or xyzrgb, not {self.fields!r}")
+        self.sampling = self.config.get("sampling", "random")
+        if self.sampling not in ("random", "voxel", "fps"):
+            raise ValueError(f"sampling must be random, voxel or fps, not {self.sampling!r}")
+        self.fps_candidates = int(self.config.get("fps_candidates", 2 * self.num_points))
+        self._voxel = None  # grid size of the last cloud, the start of the next search
+        crop = self.config.get("crop")
+        self.crop = (np.asarray(crop["min"], np.float32), np.asarray(crop["max"], np.float32)) if crop else None
+        self.rng = np.random.default_rng(self.config.get("seed", 0))
+
+    @property
+    def msgtype(self) -> str:
+        return "sensor_msgs/msg/PointCloud2"
+
+    @property
+    def shape(self) -> tuple:
+        return (self.num_points, 6 if self.fields == "xyzrgb" else 3)
+
+    @property
+    def dtype(self) -> str:
+        return "float32"
+
+    @property
+    def name(self) -> List[str]:
+        return ["x", "y", "z", "r", "g", "b"] if self.fields == "xyzrgb" else ["x", "y", "z"]
+
+    @staticmethod
+    def decode(msg) -> Tuple[np.ndarray, np.ndarray | None]:
+        """(N, 3) float32 xyz with NaNs dropped and (N, 3) uint8 rgb (None if the cloud has none)."""
+        names = [f.name for f in msg.fields]
+        dtype = np.dtype({
+            "names": names,
+            "formats": [np.dtype(_PC2_DTYPES[f.datatype]).newbyteorder(">" if msg.is_bigendian else "<")
+                        for f in msg.fields],
+            "offsets": [f.offset for f in msg.fields],
+            "itemsize": msg.point_step,
+        })
+        data = np.frombuffer(memoryview(msg.data), dtype=dtype, count=msg.width * msg.height)
+        xyz = np.stack([data["x"], data["y"], data["z"]], axis=-1).astype(np.float32)
+        ok = np.isfinite(xyz).all(axis=1)
+        rgb = None
+        key = "rgb" if "rgb" in names else "rgba" if "rgba" in names else None
+        if key:
+            packed = np.ascontiguousarray(data[key]).view(np.uint32)
+            rgb = np.stack([(packed >> 16) & 255, (packed >> 8) & 255, packed & 255], axis=-1).astype(np.uint8)[ok]
+        return xyz[ok], rgb
+
+    def _fps(self, xyz: np.ndarray, k: int) -> np.ndarray:
+        n = len(xyz)
+        if n > self.fps_candidates:
+            pre = self.rng.choice(n, self.fps_candidates, replace=False)
+        else:
+            pre = np.arange(n)
+        x, y, z = (np.ascontiguousarray(xyz[pre, i]) for i in range(3))
+        chosen = np.empty(k, np.int64)
+        dist = np.full(len(pre), np.inf, np.float32)
+        d, t = np.empty_like(dist), np.empty_like(dist)
+        chosen[0] = self.rng.integers(len(pre))
+        for i in range(1, k):  # in-place: no temporaries per iteration
+            j = chosen[i - 1]
+            np.subtract(x, x[j], out=d)
+            np.multiply(d, d, out=d)
+            np.subtract(y, y[j], out=t)
+            np.multiply(t, t, out=t)
+            d += t
+            np.subtract(z, z[j], out=t)
+            np.multiply(t, t, out=t)
+            d += t
+            np.minimum(dist, d, out=dist)
+            chosen[i] = int(np.argmax(dist))
+        return pre[chosen]
+
+    def _voxel_sample(self, xyz: np.ndarray, k: int) -> np.ndarray:
+        """One random point per occupied cell, with the cell size searched so that >= k cells."""
+        lo = xyz.min(axis=0)
+        span = float(np.max(xyz.max(axis=0) - lo)) or 1.0
+        voxel = self._voxel or span / np.cbrt(k)
+        order = self.rng.permutation(len(xyz))  # random representative per cell
+        pts = xyz[order] - lo
+        best = None
+        for _ in range(8):
+            keys = np.floor(pts / voxel).astype(np.int64)
+            dims = keys.max(axis=0) + 1
+            flat = (keys[:, 0] * dims[1] + keys[:, 1]) * dims[2] + keys[:, 2]
+            _, first = np.unique(flat, return_index=True)
+            if len(first) >= k:
+                best = first
+                if len(first) < 1.5 * k:
+                    break
+                voxel *= 1.25
+            else:
+                voxel *= 0.7
+        self._voxel = voxel
+        if best is None:  # still fewer cells than k: every point is its own cell
+            return order
+        return order[self.rng.choice(best, k, replace=False)]
+
+    def extract(self, msg):
+        xyz, rgb = self.decode(msg)
+        if self.crop is not None and len(xyz):
+            keep = np.all((xyz >= self.crop[0]) & (xyz <= self.crop[1]), axis=1)
+            xyz, rgb = xyz[keep], (rgb[keep] if rgb is not None else None)
+        out = np.zeros(self.shape, np.float32)
+        n = len(xyz)
+        if n == 0:
+            return out
+        if n >= self.num_points:
+            if self.sampling == "fps":
+                idx = self._fps(xyz, self.num_points)
+            elif self.sampling == "voxel":
+                idx = self._voxel_sample(xyz, self.num_points)
+            else:
+                idx = self.rng.choice(n, self.num_points, replace=False)
+        else:  # pad by repeating points
+            idx = np.concatenate([np.arange(n), self.rng.choice(n, self.num_points - n, replace=True)])
+        out[:, :3] = xyz[idx]
+        if self.fields == "xyzrgb" and rgb is not None:
+            out[:, 3:] = rgb[idx].astype(np.float32) / 255.0
+        return out

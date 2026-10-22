@@ -53,6 +53,9 @@ class ReplayClient(Node):
         self._setup_processors_and_pubs(self.config.get("actions", []))
         
         self.home_pose_cfg = self.config.get('home_pose', {})
+        # Joint-space home when the arm has home_joints (franka_client/joint_home.py)
+        from franka_client.joint_home import make_joint_home
+        self.joint_home = make_joint_home(self, self.home_pose_cfg, None)
         # target_pose only exists as a franka_custom_msgs/srv/SetPoseStamped service
         self.home_pose_client_ = self.create_client(SetPoseStamped, self.home_pose_cfg.get('topic'))
         self.home_gripper_pub = self.create_publisher(
@@ -136,9 +139,13 @@ class ReplayClient(Node):
             if hasattr(key, 'char') and key.char is not None:
                 char = key.char.lower()
                 if char == 'r':
+                    if self.joint_home is not None:
+                        self.joint_home.stop("replay started")
                     self.get_logger().info("▶️ PLAY Replay")
                     self._send_command("play")
                 elif char == 's':
+                    if self.joint_home is not None:
+                        self.joint_home.stop("stopped (S pressed)")
                     self.get_logger().info("🛑 STOP Replay")
                     self._send_command("stop")
                 elif char == 'h':
@@ -185,8 +192,22 @@ class ReplayClient(Node):
                 timed_action = self.action_queue.get_nowait()
                 self.execute_actions(timed_action.get_action())
 
+    def _open_home_gripper(self, stamp):
+        gripper_msg = JointTrajectory()
+        gripper_msg.header.stamp = stamp
+        gripper_msg.joint_names = [self.home_pose_cfg.get('gripper_joint_name', 'franka_right_rh_r1')]
+        
+        point = JointTrajectoryPoint()
+        point.positions = [float(self.home_pose_cfg.get('gripper_open_val', 1.0))]
+        point.time_from_start.nanosec = int((1.0 / self.frequency) * 1e9)
+        gripper_msg.points = [point]
+        self.home_gripper_pub.publish(gripper_msg)
+
     def _send_home_pose(self):
         stamp = self.get_clock().now().to_msg()
+        if self.joint_home is not None and self.joint_home.start():
+            self._open_home_gripper(stamp)
+            return
         msg = PoseStamped()
         msg.header.stamp = stamp
         msg.header.frame_id = self.home_pose_cfg.get('frame_id', 'world')
@@ -204,15 +225,7 @@ class ReplayClient(Node):
         else:
             self.logger.error("target_pose service not ready, cannot send home pose.")
 
-        gripper_msg = JointTrajectory()
-        gripper_msg.header.stamp = stamp
-        gripper_msg.joint_names = [self.home_pose_cfg.get('gripper_joint_name', 'franka_right_rh_r1')]
-        
-        point = JointTrajectoryPoint()
-        point.positions = [float(self.home_pose_cfg.get('gripper_open_val', 1.0))]
-        point.time_from_start.nanosec = int((1.0 / self.frequency) * 1e9)
-        gripper_msg.points = [point]
-        self.home_gripper_pub.publish(gripper_msg)
+        self._open_home_gripper(stamp)
 
 def main():
     rclpy.init()

@@ -88,6 +88,22 @@ class CartesianPosePublisher(Node):
         self.fijk_subscriber_ = self.create_subscription(FIJKDebug, self.ns + '/fijk_debug', self.fijk_callback, 1)
 
         self.target_pose_client_ = self.create_client(SetPoseStamped, self.ns + '/target_pose')
+
+        # Joint-space home (holding B): home_joints of the teleop config, driven through the
+        # safety node's joint-velocity input (franka_client/joint_home.py). Without home_joints,
+        # B keeps the Cartesian home of _compute_home_override.
+        self.joint_home = None
+        self._joint_homing = False
+        try:
+            from franka_client.joint_home import JointHome, load_home
+            keys = ("home_joints", "home_joint_max_speed", "home_joint_min_duration")
+            home = load_home(self.ns, {k: OmegaConf.to_object(self.config[k]) if OmegaConf.is_config(self.config.get(k))
+                                       else self.config.get(k) for k in keys if self.config.get(k) is not None})
+            if home is not None:
+                self.joint_home = JointHome(self, self.ns, home)
+                self.get_logger().info(f"Joint home (B): {home['joints'].round(4).tolist()}")
+        except Exception as e:
+            self.get_logger().error(f"Joint home disabled ({e}); B uses the Cartesian home.")
         self.gripper_publisher_ = self.create_publisher(JointTrajectory, self.ns + '/gripper/gripper_controller/joint_trajectory', 1)
         
         # Gripper Control Mode (Read from Robot Description Config)
@@ -169,8 +185,11 @@ class CartesianPosePublisher(Node):
         ])
 
     def call_service_async(self, client, name):
-        if not client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().warn(f'Service {name} not available')
+        # Never block here: this runs inside the 50 Hz timer on the node's only executor thread.
+        # A wait_for_service(1.0) on a missing service froze the node for 1 s, so joint homing
+        # (B) found 1 s old joint states and refused, and teleop worked on stale state.
+        if not client.service_is_ready():
+            self.get_logger().warn(f'Service {name} not available -- skipped', throttle_duration_sec=5.0)
             return
         self.get_logger().info(f'Calling {name}...')
         req = Trigger.Request()
@@ -285,7 +304,9 @@ class CartesianPosePublisher(Node):
     def _compute_home_override(self, b_pressed):
         """Compute smooth homing trajectory if B is held"""
         target_pos = np.array([0.4, -0.3, 0.15])
-        target_quat = np.array([1.0, 0.3, 0.0, 0.0])
+        # x y z w of grasp_point; was [1.0, 0.3, 0, 0] before the end effectors (and so grasp_point)
+        # were turned by pi about z on the flange (2026-10-23): same physical wrist pose
+        target_quat = np.array([0.3, -1.0, 0.0, 0.0])
         target_quat = target_quat / np.linalg.norm(target_quat)
 
         # Use the last commanded pose as the starting point, or current physical state
@@ -348,6 +369,21 @@ class CartesianPosePublisher(Node):
             }
         
         return translation, rotation
+
+    def _abort_joint_homing(self, reason):
+        """Joint homing must not outlive the loop that checks that B is still held."""
+        if self.joint_home is not None and self._joint_homing:
+            self._joint_homing = False
+            self.joint_home.stop(f"aborted: {reason}")
+
+    def _sync_teleop_to(self, pos, quat):
+        """Re-anchors the VR mapping on ``pos``/``quat`` after a joint homing (no jump on the next grip)."""
+        pos, quat = np.asarray(pos, dtype=float), np.asarray(quat, dtype=float)
+        self.controller.last_target = {"pos": pos.copy(), "quat": quat.copy()}
+        self.controller.robot_origin = {"pos": pos.copy(), "quat": quat.copy()}
+        if getattr(self.controller, "vr_state", None) is not None:
+            self.controller.vr_origin = {"pos": self.controller.vr_state["pos"].copy(),
+                                         "quat": self.controller.vr_state["quat"].copy()}
 
     def _publish_commands(self, translation, rotation, target_gripper):
         """Publish Cartesian Pose and Gripper Trajectory"""
@@ -471,13 +507,20 @@ class CartesianPosePublisher(Node):
     def timer_callback(self):
         # Ensure robot client is ready before processing
         if not self.robot.is_ready():
+            self._abort_joint_homing("robot not ready")
             return
 
         controller_info = self.controller.get_info()
         a_pressed, b_pressed = self._handle_recording_triggers(controller_info)
+
         
         succ, robot_state_dict = self._get_current_robot_state()
-        if not succ: return
+        if not succ:
+            self._abort_joint_homing("no robot state")
+            return
+        # Measured EE pose of this tick (crisp_py, the IK's grasp_point), before any override below
+        measured_pos = robot_state_dict["cartesian_position"].copy()
+        measured_quat = robot_state_dict["cartesian_rotation"].copy()
 
         # 1. ALWAYS override with C++ feedback before calculating VR math
         if self.latest_cmd_pos is not None and controller_info["movement_enabled"]:
@@ -486,6 +529,28 @@ class CartesianPosePublisher(Node):
 
         # 2. Synchronous Poll (Calculates everything once)
         result = self.controller.poll_and_process(robot_state_dict)
+
+        # Joint homing only while B is held, on the button state this poll just read (a lost
+        # controller counts as released). No Cartesian targets meanwhile: they would preempt it.
+        if self.joint_home is not None:
+            tracked = result is not None and result[2] != {}
+            b_held = tracked and bool(self.controller.get_info()["failure"])
+            if b_held and not self._joint_homing:
+                self._joint_homing = True
+                self.joint_home.start()
+            elif not b_held and self._joint_homing:
+                self._joint_homing = False
+                self.joint_home.stop("released")
+                # Re-anchor on where the arm IS (measured): otherwise last_target still holds the
+                # pose from before the homing and the next grip snaps back there. (cmd_pose from
+                # fijk_debug is no option: nothing in the current stack publishes it.)
+                self._sync_teleop_to(measured_pos, measured_quat)
+            if b_held:
+                return
+            # B is homing here: b_pressed (read before this tick's poll) must not also start the
+            # Cartesian home override below -- on the release tick it still read as pressed.
+            b_pressed = False
+
         if result is None or result[2] == {}:
             return
         
@@ -504,18 +569,11 @@ class CartesianPosePublisher(Node):
         if not controller_info["movement_enabled"] and not b_pressed:
             self.last_raw_target = None
 
-            if just_stopped:  
-                sync_pos = self.latest_cmd_pos.copy() if self.latest_cmd_pos is not None \
-                   else robot_state_dict["cartesian_position"].copy()
-                sync_quat = self.latest_cmd_quat.copy() if self.latest_cmd_quat is not None \
-                             else robot_state_dict["cartesian_rotation"].copy()
-                self.controller.last_target = {"pos": sync_pos, "quat": sync_quat}
-                self.controller.robot_origin = {"pos": sync_pos, "quat": sync_quat}
-                if hasattr(self.controller, 'vr_state') and self.controller.vr_state is not None:
-                    self.controller.vr_origin = {
-                        "pos": self.controller.vr_state["pos"].copy(),
-                        "quat": self.controller.vr_state["quat"].copy()
-                    }
+            # Re-anchor on EVERY idle tick on the measured pose, not only on release: Home (studio,
+            # client, B), a policy or a replay may move the arm while teleop is idle, and the next
+            # grip anchors on last_target -- a stale one drove the arm back toward where teleop had
+            # left it (as the old teleop did).
+            self._sync_teleop_to(measured_pos, measured_quat)
             
             idle_pos = self.controller.last_target["pos"]
             idle_quat = self.controller.last_target["quat"]

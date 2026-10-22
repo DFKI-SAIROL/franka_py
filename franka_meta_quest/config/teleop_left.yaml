@@ -24,3 +24,12 @@ base_frame: "world"
 publish_joint_trajectory: true
 target_joint_topic: "internal/target_joint"
 target_pose_topic: "internal/target_pose"
+
+# Joint-space home: holding B, the studio's Home and the clients' H drive here (franka_client/
+# joint_home.py: minimum-jerk through the safety node's policy_target_dq, all joints arriving
+# together, the fastest peaking at home_joint_max_speed). From the old setup (captured 2026-10-06);
+# capture a new one with `pixi run -e humble python -m franka_client.joint_home`.
+# home_joints: [-0.4889, 0.0096, 0.0057, -2.4481, -1.5259, 2.3718, 2.9468]   # joint1..7 [rad]
+home_joints: [-0.8202, -0.3559, 0.0370, -2.1975, 0.1123, 2.0660, 0.7942]
+home_joint_max_speed: 0.4    # rad/s planned peak
+home_joint_min_duration: 2.0 # s

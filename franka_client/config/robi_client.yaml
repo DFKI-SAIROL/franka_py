@@ -63,7 +63,9 @@ home_pose:
   topic: "/franka_right/target_pose"
   frame_id: "world"
   position: [0.4, -0.3, 0.15] # [0.3, -0.3, 0.4]  # x, y, z
-  orientation: [1.0, 0.3, 0.0, 0.0] # [0.95, 0.32, 0.0, 0.0]  # x, y, z, w (or however your C++ node expects it)
+  # x, y, z, w of grasp_point; was [1.0, 0.3, 0.0, 0.0] before the end effectors were turned by pi
+  # about z on the flange (2026-10-23): same physical wrist pose
+  orientation: [0.3, -1.0, 0.0, 0.0]
   gripper_topic: "/franka_right/gripper/gripper_controller/joint_trajectory"
   gripper_joint_name: "franka_right_rh_r1"
   gripper_open_val: 0.0
