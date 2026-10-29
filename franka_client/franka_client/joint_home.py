@@ -24,7 +24,9 @@ import yaml
 from geometry_msgs.msg import PoseStamped
 from rclpy.duration import Duration
 from rclpy.time import Time
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool
 
 from franka_custom_msgs.srv import SetPoseStamped
 
@@ -35,6 +37,8 @@ SETTLE_TOL = 0.005         # rad, done below this on every joint
 SETTLE_TIMEOUT_S = 1.5
 MAX_DEVIATION = 0.3        # rad between measured and planned joints: something else moves the arm
 JOINT_STATES_STALE_S = 0.25
+HALT_TOPIC = "/robot_halt"   # latched std_msgs/Bool of the studio's Stop (the safety node holds the arms)
+HALT_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def check_joints(values) -> np.ndarray:
@@ -45,15 +49,22 @@ def check_joints(values) -> np.ndarray:
 
 
 def teleop_config_path(ns: str) -> Path | None:
-    """franka_meta_quest's teleop_<side>.yaml for the arm namespace (franka_right -> right)."""
+    """franka_meta_quest's teleop_<side>.yaml for the arm namespace (franka_right -> right): the
+    installed share, else the source tree next to this package (a process without the sourced
+    workspace, e.g. the studio started from another shell)."""
+    side = ns.strip("/").rsplit("_", 1)[-1]
+    dirs = []
     try:
         from ament_index_python.packages import get_package_share_directory
-        share = Path(get_package_share_directory("franka_meta_quest"))
+        dirs.append(Path(get_package_share_directory("franka_meta_quest")) / "config")
     except Exception:
-        return None
-    side = ns.strip("/").rsplit("_", 1)[-1]
-    path = share / "config" / f"teleop_{side}.yaml"
-    return path if path.is_file() else None
+        pass
+    # src/franka_py/franka_client/franka_client/joint_home.py -> src/franka_py/franka_meta_quest/config
+    dirs.append(Path(__file__).resolve().parents[2] / "franka_meta_quest" / "config")
+    for d in dirs:
+        if (d / f"teleop_{side}.yaml").is_file():
+            return d / f"teleop_{side}.yaml"
+    return None
 
 
 def load_home(ns: str, config: dict | None = None) -> dict | None:
@@ -91,6 +102,8 @@ class JointHome:
                                                callback_group=callback_group)
         node.create_subscription(JointState, self.ns + "/franka/joint_states", self._on_joints, 1,
                                  callback_group=callback_group)
+        self.halted = False
+        node.create_subscription(Bool, HALT_TOPIC, self._on_halt, HALT_QOS, callback_group=callback_group)
         if tf_buffer is None:
             from tf2_ros import Buffer, TransformListener
             tf_buffer = Buffer()
@@ -111,6 +124,13 @@ class JointHome:
         with self._lock:
             self._q, self._q_time = q, self._now()
 
+    def _on_halt(self, msg: Bool) -> None:
+        self.halted = bool(msg.data)
+        if self.halted:
+            with self._lock:
+                self._traj = None   # the safety node ignores us now; no IK re-target either
+            self.message = f"{self.arm}: homing stopped (halted)."
+
     def measured(self) -> np.ndarray | None:
         with self._lock:
             return None if self._q is None else self._q.copy()
@@ -125,6 +145,10 @@ class JointHome:
     def start(self, target=None) -> bool:
         """Plans from the measured joints to ``target`` (default: the home joints)."""
         q1 = self.home["joints"] if target is None else check_joints(target)
+        if self.halted:
+            self.message = f"{self.arm}: halted (Stop) -- resume first."
+            self.node.get_logger().warning(self.message)
+            return False
         with self._lock:
             q0 = None if self._q is None else self._q.copy()
             fresh = self._now() - self._q_time < JOINT_STATES_STALE_S

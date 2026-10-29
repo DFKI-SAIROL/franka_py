@@ -94,6 +94,14 @@ class CartesianPosePublisher(Node):
         # B keeps the Cartesian home of _compute_home_override.
         self.joint_home = None
         self._joint_homing = False
+        # Studio Stop (/robot_halt, latched): the safety node holds the arms; teleop ignores grip
+        # and B meanwhile and keeps re-anchoring, so the first grip after Resume starts where the arm is.
+        self.halted = False
+        from std_msgs.msg import Bool
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+        self.create_subscription(Bool, '/robot_halt', self._on_halt,
+                                 QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                                            durability=DurabilityPolicy.TRANSIENT_LOCAL))
         try:
             from franka_client.joint_home import JointHome, load_home
             keys = ("home_joints", "home_joint_max_speed", "home_joint_min_duration")
@@ -370,6 +378,11 @@ class CartesianPosePublisher(Node):
         
         return translation, rotation
 
+    def _on_halt(self, msg):
+        if bool(msg.data) and not self.halted:
+            self.get_logger().warn('Halted (studio Stop): teleop input ignored until Resume.')
+        self.halted = bool(msg.data)
+
     def _abort_joint_homing(self, reason):
         """Joint homing must not outlive the loop that checks that B is still held."""
         if self.joint_home is not None and self._joint_homing:
@@ -521,6 +534,12 @@ class CartesianPosePublisher(Node):
         # Measured EE pose of this tick (crisp_py, the IK's grasp_point), before any override below
         measured_pos = robot_state_dict["cartesian_position"].copy()
         measured_quat = robot_state_dict["cartesian_rotation"].copy()
+
+        if self.halted:
+            self._abort_joint_homing("halted")
+            self.controller.poll_and_process(robot_state_dict)   # keep the button state current
+            self._sync_teleop_to(measured_pos, measured_quat)
+            return
 
         # 1. ALWAYS override with C++ feedback before calculating VR math
         if self.latest_cmd_pos is not None and controller_info["movement_enabled"]:
