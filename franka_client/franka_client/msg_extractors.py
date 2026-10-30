@@ -214,6 +214,40 @@ class PoseExtractor(BaseMSGExtractor):
         return np.concatenate(out).astype(np.float32)
 
 
+@register_msg_extractor("geometry_msgs/msg/PoseArray")
+class PoseArrayExtractor(BaseMSGExtractor):
+    """The first ``n_poses`` poses of a PoseArray (e.g. tracked objects), each like PoseStamped
+    (``fields``, ``rot_format``), concatenated; missing poses are zeros."""
+
+    def __init__(self, **config):
+        super().__init__(**config)
+        self.n_poses = int(self.config.get("n_poses", 1))
+        self.pose = PoseExtractor(**config)
+
+    @property
+    def msgtype(self) -> str:
+        return "geometry_msgs/msg/PoseArray"
+
+    @property
+    def shape(self) -> tuple:
+        return (self.n_poses * self.pose.shape[0],)
+
+    @property
+    def dtype(self) -> str:
+        return "float32"
+
+    @property
+    def name(self):
+        return None
+
+    def extract(self, msg):
+        out = np.zeros(self.shape, dtype=np.float32)
+        dim = self.pose.shape[0]
+        for i, pose in enumerate(msg.poses[: self.n_poses]):
+            out[i * dim:(i + 1) * dim] = self.pose.extract(pose)
+        return out
+
+
 @register_msg_extractor("sensor_msgs/Image")
 class ImageExtractor(BaseMSGExtractor):
     def __init__(self, **config):
