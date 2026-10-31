@@ -33,9 +33,10 @@ ament_target_dependencies(franka_cartesian_module
   rclcpp
   trajectory_msgs
   sensor_msgs
-  pinocchio
   tf2_eigen
 )
+# Link via the imported target so pinocchio's INTERFACE_COMPILE_DEFINITIONS propagate
+target_link_libraries(franka_cartesian_module pinocchio::pinocchio)
 
 install(TARGETS
   franka_cartesian_module
