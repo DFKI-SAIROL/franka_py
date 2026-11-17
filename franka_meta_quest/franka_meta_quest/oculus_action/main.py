@@ -60,6 +60,12 @@ class CartesianPosePublisher(Node):
 
         self.base_frame = self.config.base_frame
 
+        # Home pose used while the "failure" button (B/Y) is held, in base_frame. Quaternion order: x, y, z, w.
+        self.home_pos = np.array(self.config.get("home_pos", [0.4, -0.3, 0.15]), dtype=float)
+        self.home_quat = np.array(self.config.get("home_quat", [1.0, 0.3, 0.0, 0.0]), dtype=float)
+        self.home_quat = self.home_quat / np.linalg.norm(self.home_quat)
+        self.get_logger().info(f'Home pose ({self.base_frame}): pos={self.home_pos.tolist()}, quat_xyzw={self.home_quat.tolist()}')
+
         # override the ee_frame from franka_launch config or the root ws
         self.declare_parameter('end_effector_frame', '')
         end_effector_frame_override = self.get_parameter('end_effector_frame').get_parameter_value().string_value
@@ -284,9 +290,8 @@ class CartesianPosePublisher(Node):
 
     def _compute_home_override(self, b_pressed):
         """Compute smooth homing trajectory if B is held"""
-        target_pos = np.array([0.4, -0.3, 0.15])
-        target_quat = np.array([1.0, 0.3, 0.0, 0.0])
-        target_quat = target_quat / np.linalg.norm(target_quat)
+        target_pos = self.home_pos.copy()
+        target_quat = self.home_quat.copy()
 
         # Use the last commanded pose as the starting point, or current physical state
         current_pos = None
