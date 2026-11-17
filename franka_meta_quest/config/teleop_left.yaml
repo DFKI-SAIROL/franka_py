@@ -24,3 +24,8 @@ base_frame: "world"
 publish_joint_trajectory: true
 target_joint_topic: "internal/target_joint"
 target_pose_topic: "internal/target_pose"
+
+# Home pose (held Y button), in base_frame, for franka_left_grasp_point. Quaternion order: x, y, z, w.
+# Recorded from the left arm on 2026-11-16 (RPY deg: -176.4, -12.5, -48.9).
+home_pos: [0.392, 0.188, 0.420]
+home_quat: [0.906, -0.408, 0.112, 0.016]
