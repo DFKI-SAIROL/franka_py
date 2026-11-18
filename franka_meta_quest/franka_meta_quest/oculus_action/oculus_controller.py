@@ -302,7 +302,7 @@ class VRPolicy:
             print(time.time(), self.extended_controller_id, "reset target to robot", flush=True)
             self.reset_to_robot = False
             target_pos = self.last_target["pos"] if self.last_target else robot_pos
-            target_pos = self.last_target["quat"] if self.last_target else robot_quat
+            target_quat = self.last_target["quat"] if self.last_target else robot_quat
 
         if self.reset_to_init_robot:
             print(time.time(), self.extended_controller_id, "reset target to init robot", flush=True)
