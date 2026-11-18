@@ -175,6 +175,9 @@ class CartesianPosePublisher(Node):
         
         # Service Clients for Data Collection
         self.cli_rec = self.create_client(Trigger, '/data_collector/record_data_trigger')
+        # The franka studio's Record / Stop (files the episode into its dataset / task, records the
+        # enabled modalities); used instead of the collector's trigger while the studio runs.
+        self.cli_studio_rec = self.create_client(Trigger, '/franka_studio/record_trigger')
         self.reset_home = self.create_client(Trigger, '~/reset_home')
         
         # State tracking for buttons
@@ -299,7 +302,10 @@ class CartesianPosePublisher(Node):
         
         # Detect rising edge for A
         if a_pressed and not self.last_buttons["A"]: 
-            self.call_service_async(self.cli_rec, 'Recording')
+            if self.cli_studio_rec.service_is_ready():
+                self.call_service_async(self.cli_studio_rec, 'Studio recording')
+            else:
+                self.call_service_async(self.cli_rec, 'Recording')
 
         if b_pressed and not self.last_buttons["B"]: 
             self.call_service_async(self.reset_home, 'Reset Home')
