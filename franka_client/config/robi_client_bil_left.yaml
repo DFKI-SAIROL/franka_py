@@ -1,0 +1,100 @@
+# RobiClient for a bil (robomimic_ext) policy on the left arm, served by
+# bil/robomimic_real/deploy/policy_server.py.
+#
+#   pixi run -e humble python src/franka_py/franka_client/franka_client/client.py \
+#       --config src/franka_py/franka_client/config/robi_client_bil_left.yaml
+#
+# Observation (raw, converted to the model input by the server):
+#   observation.state           left arm joints 1..7 (by name) + gripper rh_r1 position
+#   observation.object.<name>   6D tracker pose in world: position + quaternion xyzw
+# with the last 2 control steps stacked (the model's observation horizon To = 2 at 15 Hz).
+# Action (from the server): grasp-point target in world, position + axis-angle, and the gripper command
+# (0 open .. 1.1 closed), executed like teleoperation: target_pose service -> safety layer -> IK.
+node_name: "robi_client_bil"
+frequency: 15.0  # Hz, rate of the training data (one action per camera frame)
+policy_inference_fps: 3.0  # Hz, only used for the default chunk_size_threshold
+task: "put the mustard bottle on the plate"
+
+observation_history:
+  length: 2  # = observation_horizon of the model
+  stride: 1  # control steps between history entries (1 at 15 Hz)
+
+mappings:
+  "observation.state":
+    - topic: "/franka_left/franka/joint_states"
+      msgtype: "sensor_msgs/msg/JointState"
+      fields: ["position"]
+      joint_names: [
+        "franka_left_fr3_joint1",
+        "franka_left_fr3_joint2",
+        "franka_left_fr3_joint3",
+        "franka_left_fr3_joint4",
+        "franka_left_fr3_joint5",
+        "franka_left_fr3_joint6",
+        "franka_left_fr3_joint7"
+      ]
+    - topic: "/franka_left/franka_gripper/joint_states"
+      msgtype: "sensor_msgs/msg/JointState"
+      fields: ["position"]
+      joint_names: ["franka_left_rh_r1"]
+  # One entry per object, names as in the training data (env_args real_robot.objects).
+  "observation.object.mustard":
+    topic: "/tracking/objects/mustard/pose_world"
+    msgtype: "geometry_msgs/msg/PoseStamped"
+    fields: ["position", "orientation"]
+    rot_format: quaternion
+  "observation.object.plate":
+    topic: "/tracking/objects/plate/pose_world"
+    msgtype: "geometry_msgs/msg/PoseStamped"
+    fields: ["position", "orientation"]
+    rot_format: quaternion
+
+actions:
+  - type: "PoseAbsolute"
+    start_idx: 0
+    end_idx: 6
+    rot_format: rotvec
+    frame_id: world
+    service: "/franka_left/target_pose"
+    srvtype: "franka_custom_msgs/srv/SetPoseStamped"
+    # Clip the target position (world, metres; z = 0 is the table). The put_bottle_on_box targets span
+    # x 0.21..0.47, y -0.05..0.32, z 0.15..0.42; this box adds about 10 cm.
+    workspace_min: [0.10, -0.15, 0.05]
+    workspace_max: [0.60, 0.45, 0.55]
+  - type: "GripperAbsolute"
+    start_idx: 6
+    end_idx: 7
+    topic: "/franka_left/gripper/gripper_controller/joint_trajectory"
+    msgtype: "trajectory_msgs/msg/JointTrajectory"
+    joint_names: ["franka_left_rh_r1"]
+    scale_factor: 1.0  # the server sends the rh_r1 command (0 or 1.1)
+    frequency: 50.0  # time_from_start 20 ms, as in teleoperation
+
+policy:
+  policy_type: "bil"
+  # Checkpoint path on the server machine (or pass --checkpoint to the server).
+  pretrained_name_or_path: "/path/to/bil/results_real/put_bottle_on_box_AF_object_symmetry/<run>/models/<epoch>.pth"
+  lerobot_features: {}
+  actions_per_chunk: 8  # = action_horizon of the model
+  # Request the next chunk when this many actions are left. It must cover one inference: the server logs
+  # the inference time (about 200-350 ms with 25 flow steps on the 4090, i.e. 3-6 actions at 15 Hz). If it
+  # is too small the robot pauses between chunks; actions the client executes during inference are skipped
+  # in the new chunk (timestep numbering).
+  chunk_size_threshold: 5
+  policy_device: "cuda"
+
+aggregate_fn: null  # newer chunk replaces overlapping actions
+
+server_address: "127.0.0.1:8090"
+
+home_pose:
+  # Rate-limited motion from the last policy target through the safety layer (key H).
+  service: "/franka_left/target_pose"
+  frame_id: "world"
+  position: [0.392, 0.188, 0.420]  # = franka_meta_quest teleop_left.yaml home_pos
+  orientation: [0.906, -0.408, 0.112, 0.016]  # x, y, z, w (teleop_left.yaml home_quat)
+  max_linear_speed: 0.1  # m/s
+  max_angular_speed: 0.5  # rad/s
+  gripper_topic: "/franka_left/gripper/gripper_controller/joint_trajectory"
+  gripper_joint_name: "franka_left_rh_r1"
+  gripper_open_val: 0.0

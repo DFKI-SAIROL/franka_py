@@ -1,6 +1,9 @@
+import argparse
 import importlib
+import os
 import yaml
 import threading
+from collections import deque
 from queue import Queue
 import time
 import pickle
@@ -18,6 +21,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from pynput import keyboard
 from geometry_msgs.msg import PoseStamped
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from scipy.spatial.transform import Rotation, Slerp
 
 import services_pb2
 import services_pb2_grpc
@@ -74,11 +78,20 @@ class RobiClient(Node):
         self.logger = get_logger(node_name)
 
         self.frequency = self.config.get('frequency', 30.0)
+        self.task = self.config.get('task', "Pick and Place")
 
         # Storage for latest PROCESSED data: {logical_name: [arrays]}
         self.latest_data = {}
         self.latest_data_lock = threading.Lock()
         self.expected_data_keys = set()
+
+        # Optional observation history: every `stride` control steps the latest data is stored, and each
+        # observation carries the last `length` of them stacked along a new first axis (oldest first).
+        history_cfg = self.config.get('observation_history', {}) or {}
+        self.history_length = int(history_cfg.get('length', 1))
+        self.history_stride = int(history_cfg.get('stride', 1))
+        self.history = deque(maxlen=self.history_length)
+        self._history_tick = 0
 
         # Setup subscribers
         self.callback_group = ReentrantCallbackGroup()
@@ -92,11 +105,21 @@ class RobiClient(Node):
         # State & keyboard control
         self.policy_active = False
         self.home_pose_cfg = self.config.get('home_pose', {})
-        self.home_pub = self.create_publisher(
-            PoseStamped, 
-            self.home_pose_cfg.get('topic'), 
-            1
-        )
+        # Home target: a PoseStamped topic, or a SetPoseStamped service (e.g. the safety layer's target_pose).
+        # With a service the motion is rate limited (max_linear_speed, max_angular_speed) and starts at the
+        # last pose sent by a PoseAbsolute action processor.
+        self.home_pub, self.home_cli, self.home_path = None, None, None
+        if self.home_pose_cfg.get('service'):
+            self.home_cli = (*self._create_service_client(
+                self.home_pose_cfg['service'],
+                self.home_pose_cfg.get('srvtype', 'franka_custom_msgs/srv/SetPoseStamped')),
+                self.home_pose_cfg.get('request_field', 'pose'))
+        else:
+            self.home_pub = self.create_publisher(
+                PoseStamped,
+                self.home_pose_cfg.get('topic'),
+                1
+            )
         self.home_gripper_pub = self.create_publisher(
             JointTrajectory,
             self.home_pose_cfg.get('gripper_topic', '/franka_right/gripper/gripper_controller/joint_trajectory'),
@@ -293,25 +316,46 @@ class RobiClient(Node):
                 if any(v is None for v in array_list):
                     return False
 
-        return True
-    
-    def build_observation(self, task: str = "Pick and Place") -> TimedObservation:
-        """Assembles the observation automatically based on the YAML mappings"""
-        raw_observation: RawObservation = {}
-        
+        return self.history_length == 1 or len(self.history) > 0
+
+    def _snapshot(self) -> RawObservation | None:
+        """Latest data per feature key (topics of one key concatenated), or None while data is missing."""
+        snapshot: RawObservation = {}
         with self.latest_data_lock:
             for feature_key in self.expected_data_keys:
                 # self.latest_data[feature_key] is a list of arrays
                 arrays = self.latest_data[feature_key]
-                
+                if any(v is None for v in arrays):
+                    return None
+
                 # If we are mapping multiple topics to one key (e.g., arm + gripper),
                 # concatenate them. Otherwise, just grab the single array.
                 if len(arrays) == 1:
-                    raw_observation[feature_key] = arrays[0]
+                    snapshot[feature_key] = arrays[0]
                 else:
-                    raw_observation[feature_key] = np.concatenate(arrays, axis=-1).astype(np.float32)
-        
-        raw_observation["task"] = task
+                    snapshot[feature_key] = np.concatenate(arrays, axis=-1).astype(np.float32)
+        return snapshot
+
+    def _update_history(self):
+        if self.history_length == 1:
+            return
+        if self._history_tick % self.history_stride == 0:
+            snapshot = self._snapshot()
+            if snapshot is not None:
+                self.history.append(snapshot)
+        self._history_tick += 1
+
+    def build_observation(self, task: str | None = None) -> TimedObservation:
+        """Assembles the observation automatically based on the YAML mappings"""
+        if self.history_length == 1:
+            raw_observation: RawObservation = self._snapshot()
+        else:
+            # (length, ...) per key, oldest first; padded with the oldest entry until the history is full
+            frames = list(self.history)
+            frames = [frames[0]] * (self.history_length - len(frames)) + frames
+            raw_observation = {k: np.stack([f[k] for f in frames]) for k in frames[-1]}
+
+        raw_observation["task"] = task if task is not None else self.task
 
         with self.latest_action_lock:
             latest_action = self.latest_action
@@ -332,14 +376,36 @@ class RobiClient(Node):
         stamp = self.get_clock().now().to_msg()
         
         for pub, processor in zip(self.pubs, self.action_processors):
-            # The processor takes the full array, slices it internally based on its config, 
+            # The processor takes the full array, slices it internally based on its config,
             # and returns the correct ROS message (or None if invalid)
             msg = processor.process(action_array, stamp)
-            
+
             if msg is not None:
-                pub.publish(msg)
+                self._send(pub, msg)
+
+    def _send(self, output, msg):
+        """Publish on a topic, or call a service (output = (client, request class, request field))."""
+        if not isinstance(output, tuple):
+            output.publish(msg)
+            return
+        cli, request_class, field = output
+        if not cli.service_is_ready():
+            self.get_logger().warn(f"Service {cli.srv_name} not available, action not sent",
+                                   throttle_duration_sec=2.0)
+            return
+        request = request_class()
+        setattr(request, field, msg)
+        cli.call_async(request)
+
+    def _create_service_client(self, name: str, srv_type_str: str):
+        pkg, _, cls_name = srv_type_str.split('/')
+        srv_class = getattr(importlib.import_module(f'{pkg}.srv'), cls_name)
+        return self.create_client(srv_class, name, callback_group=self.callback_group), srv_class.Request
 
     def control_loop_step(self):
+        self._update_history()
+        if self.home_path:
+            self._home_step()
         if not self.policy_active:
             # Drain the queue so old actions don't execute when we resume
             with self.action_queue_lock:
@@ -475,6 +541,13 @@ class RobiClient(Node):
         """
         for config in actions_config:
             processor_type = config["type"]
+            if config.get('service'):
+                # e.g. service: /franka_left/target_pose, srvtype: franka_custom_msgs/srv/SetPoseStamped
+                cli, request_class = self._create_service_client(
+                    config['service'], config.get('srvtype', 'franka_custom_msgs/srv/SetPoseStamped'))
+                self.pubs.append((cli, request_class, config.get('request_field', 'pose')))
+                self.action_processors.append(ACTION_PROCESSORS[processor_type](**config))
+                continue
             msg_type_str = config['msgtype']
             topic_name = config['topic']
             parts = msg_type_str.split('/')
@@ -499,9 +572,11 @@ class RobiClient(Node):
                 if char == 'r':
                     if not self.policy_active:
                         self.get_logger().info("▶️ STARTING Policy (R pressed)")
+                        self.home_path = None
                         self.policy_active = True
-                        
+
                 elif char == 's':
+                    self.home_path = None
                     if self.policy_active:
                         self.get_logger().info("🛑 STOPPING Policy (S pressed)")
                         self.policy_active = False
@@ -514,20 +589,58 @@ class RobiClient(Node):
         except Exception as e:
             self.get_logger().error(f"Keyboard listener error: {e}")
 
+    def _pose_processor(self):
+        """The first PoseAbsolute action processor that has sent a pose, or None."""
+        for processor in self.action_processors:
+            if getattr(processor, 'last_pose', None) is not None:
+                return processor
+        return None
+
+    def _plan_home_path(self, pos, quat):
+        """Rate-limited path from the last policy target to the home pose (one pose per control step)."""
+        processor = self._pose_processor()
+        if processor is None:
+            self.get_logger().warn("No pose target sent yet, so the start of the home motion is unknown. "
+                                   "Use the teleop home button instead.")
+            return
+        start_pos, start_quat = processor.last_pose
+        rotations = Rotation.from_quat([start_quat, quat])
+        distance = np.linalg.norm(np.asarray(pos) - start_pos)
+        angle = (rotations[1] * rotations[0].inv()).magnitude()
+        duration = max(distance / self.home_pose_cfg.get('max_linear_speed', 0.1),
+                       angle / self.home_pose_cfg.get('max_angular_speed', 0.5))
+        steps = max(1, math.ceil(duration * self.frequency))
+        s = np.arange(1, steps + 1) / steps
+        positions = start_pos + s[:, None] * (np.asarray(pos) - start_pos)
+        quats = Slerp([0.0, 1.0], rotations)(s).as_quat()
+        self.get_logger().info(f"Homing: {distance * 100:.1f} cm, {np.degrees(angle):.0f} deg in {duration:.1f} s")
+        self.home_path = deque(zip(positions, quats))
+        self._home_processor = processor
+
+    def _home_step(self):
+        path = self.home_path
+        if not path:
+            self.home_path = None
+            return
+        pos, quat = path.popleft()
+        msg = self._home_processor.make_msg(pos, quat, self.get_clock().now().to_msg())
+        self._send(self.home_cli, msg)
+
     def _send_home_pose(self):
         """Builds and publishes the Cartesian home position."""
         stamp = self.get_clock().now().to_msg()
-        msg = PoseStamped()
-        msg.header.stamp = stamp
-        msg.header.frame_id = self.home_pose_cfg.get('frame_id', 'world')
-        
         pos = self.home_pose_cfg.get('position', [0.3, 0.0, 0.5])
-        quat = self.home_pose_cfg.get('orientation', [1.0, 0.0, 0.0, 0.0])
-        
-        msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = pos[0], pos[1], pos[2]
-        msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w = quat[0], quat[1], quat[2], quat[3]
-        
-        self.home_pub.publish(msg)
+        quat = self.home_pose_cfg.get('orientation', [1.0, 0.0, 0.0, 0.0])  # x, y, z, w
+
+        if self.home_cli is not None:
+            self._plan_home_path(pos, quat)
+        else:
+            msg = PoseStamped()
+            msg.header.stamp = stamp
+            msg.header.frame_id = self.home_pose_cfg.get('frame_id', 'world')
+            msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = pos[0], pos[1], pos[2]
+            msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w = quat[0], quat[1], quat[2], quat[3]
+            self.home_pub.publish(msg)
 
         gripper_msg = JointTrajectory()
         gripper_msg.header.stamp = stamp
@@ -544,11 +657,16 @@ class RobiClient(Node):
         self.home_gripper_pub.publish(gripper_msg)
 
 def main():
+    parser = argparse.ArgumentParser(description="ROS client for a remote (LeRobot async-inference) policy server")
+    parser.add_argument(
+        "--config",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config", "robi_client.yaml"),
+        help="client YAML (default: config/robi_client.yaml of this package)",
+    )
+    args, _ = parser.parse_known_args()
     rclpy.init()
 
-    robi_client_node = RobiClient(
-        config_file_path="/home/csil/projects/bimanual/franka_ros2_ws/src/frankapy/franka_client/config/robi_client.yaml", 
-    )
+    robi_client_node = RobiClient(config_file_path=args.config)
     
     executor = MultiThreadedExecutor()
     executor.add_node(robi_client_node)

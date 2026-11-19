@@ -55,7 +55,12 @@ class JointStateExtractor(BaseMSGExtractor):
     def __init__(self, **config):
         super().__init__(**config)
         self.fields = self.config.get("fields", ["position"])
-        self.n_dof = self.config.get("n_dof", 1)
+        # Optional: output the joints in this order, looked up by name. The franka joint_states message does not
+        # list the joints in order (e.g. joint4, joint5, joint6, joint1, ...), so without joint_names the
+        # values keep the message order.
+        self.joint_names = self.config.get("joint_names")
+        self.n_dof = len(self.joint_names) if self.joint_names else self.config.get("n_dof", 1)
+        self._index = None
 
     @property
     def msgtype(self) -> str:
@@ -69,16 +74,24 @@ class JointStateExtractor(BaseMSGExtractor):
     def dtype(self) -> str:
         return "float32"
 
+    def _order(self, msg):
+        if self._index is None or len(msg.name) != self._index[1]:
+            names = list(msg.name)
+            missing = [n for n in self.joint_names if n not in names]
+            if missing:
+                raise ValueError(f"joints {missing} not in JointState names {names}")
+            self._index = ([names.index(n) for n in self.joint_names], len(names))
+        return self._index[0]
+
     def extract(self, msg):
         out = []
+        index = self._order(msg) if self.joint_names else None
 
         # Flexibly pull only what the YAML requested
-        if "position" in self.fields:
-            out.append(np.array(msg.position, dtype=np.float32))
-        if "velocity" in self.fields:
-            out.append(np.array(msg.velocity, dtype=np.float32))
-        if "effort" in self.fields:
-            out.append(np.array(msg.effort, dtype=np.float32))
+        for field in ("position", "velocity", "effort"):
+            if field in self.fields:
+                values = np.array(getattr(msg, field), dtype=np.float32)
+                out.append(values[index] if index is not None else values)
         return np.concatenate(out)
 
 
@@ -176,15 +189,17 @@ class PoseExtractor(BaseMSGExtractor):
 
     def extract(self, msg):
         out = []
+        # PoseStamped carries the pose in msg.pose; FMQDebug passes plain Pose fields
+        pose = msg.pose if hasattr(msg, "header") else msg
 
         # 1. Extract Position
         if "position" in self.fields:
-            pos = msg.position
+            pos = pose.position
             out.append([pos.x, pos.y, pos.z])
 
         # 2. Extract and Convert Orientation
         if "orientation" in self.fields:
-            q = msg.orientation
+            q = pose.orientation
             # scipy.spatial.transform expects quaternions in [x, y, z, w] format
             quat = [q.x, q.y, q.z, q.w]
 
