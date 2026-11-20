@@ -608,8 +608,8 @@ class PointCloudExtractor(BaseMSGExtractor):
             else:
                 voxel *= 0.7
         self._voxel = voxel
-        if best is None:  # still fewer cells than k: every point is its own cell
-            return order
+        if best is None:  # still fewer cells than k (many duplicate points): k random points
+            return order[:k]
         return order[self.rng.choice(best, k, replace=False)]
 
     def extract(self, msg):
