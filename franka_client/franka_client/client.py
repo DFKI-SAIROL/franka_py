@@ -22,6 +22,7 @@ from pynput import keyboard
 from geometry_msgs.msg import PoseStamped
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from scipy.spatial.transform import Rotation, Slerp
+from tf2_ros import Buffer, TransformListener
 
 import services_pb2
 import services_pb2_grpc
@@ -107,8 +108,13 @@ class RobiClient(Node):
         self.home_pose_cfg = self.config.get('home_pose', {})
         # Home target: a PoseStamped topic, or a SetPoseStamped service (e.g. the safety layer's target_pose).
         # With a service the motion is rate limited (max_linear_speed, max_angular_speed) and starts at the
-        # last pose sent by a PoseAbsolute action processor.
+        # last pose sent by a PoseAbsolute action processor; before the first one, at the current pose of
+        # home_pose.ee_frame in frame_id from TF.
         self.home_pub, self.home_cli, self.home_path = None, None, None
+        self.tf_buffer = None
+        if self.home_pose_cfg.get('ee_frame'):
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(self.tf_buffer, self)
         if self.home_pose_cfg.get('service'):
             self.home_cli = (*self._create_service_client(
                 self.home_pose_cfg['service'],
@@ -596,14 +602,32 @@ class RobiClient(Node):
                 return processor
         return None
 
+    def _current_ee_pose(self):
+        """Current pose of home_pose.ee_frame in home_pose.frame_id from TF, or None."""
+        if self.tf_buffer is None:
+            return None
+        try:
+            t = self.tf_buffer.lookup_transform(self.home_pose_cfg.get('frame_id', 'world'),
+                                                self.home_pose_cfg['ee_frame'], rclpy.time.Time()).transform
+        except Exception as e:
+            self.get_logger().warn(f"No TF for {self.home_pose_cfg['ee_frame']}: {e}")
+            return None
+        return (np.array([t.translation.x, t.translation.y, t.translation.z]),
+                np.array([t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w]))
+
     def _plan_home_path(self, pos, quat):
-        """Rate-limited path from the last policy target to the home pose (one pose per control step)."""
+        """Rate-limited path from the last policy target (or the current pose) to the home pose."""
         processor = self._pose_processor()
-        if processor is None:
-            self.get_logger().warn("No pose target sent yet, so the start of the home motion is unknown. "
-                                   "Use the teleop home button instead.")
-            return
-        start_pos, start_quat = processor.last_pose
+        if processor is not None:
+            start_pos, start_quat = processor.last_pose
+        else:
+            processor = next((p for p in self.action_processors if hasattr(p, 'make_msg')), None)
+            start = self._current_ee_pose() if processor is not None else None
+            if start is None:
+                self.get_logger().warn("No pose target sent yet and no current pose from TF (home_pose.ee_frame), "
+                                       "so the start of the home motion is unknown. Use the teleop home button.")
+                return
+            start_pos, start_quat = start
         rotations = Rotation.from_quat([start_quat, quat])
         distance = np.linalg.norm(np.asarray(pos) - start_pos)
         angle = (rotations[1] * rotations[0].inv()).magnitude()

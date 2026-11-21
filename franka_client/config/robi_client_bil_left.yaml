@@ -91,6 +91,7 @@ home_pose:
   # Rate-limited motion from the last policy target through the safety layer (key H).
   service: "/franka_left/target_pose"
   frame_id: "world"
+  ee_frame: "franka_left_grasp_point"  # start of the motion before the first policy target (from TF)
   position: [0.392, 0.188, 0.420]  # = franka_meta_quest teleop_left.yaml home_pos
   orientation: [0.906, -0.408, 0.112, 0.016]  # x, y, z, w (teleop_left.yaml home_quat)
   max_linear_speed: 0.1  # m/s
